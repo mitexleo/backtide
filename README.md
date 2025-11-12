@@ -287,10 +287,6 @@ go test ./...
 backtide --config /path/to/config.yaml backup
 ```
 
-## License
-
-MIT License - see LICENSE file for details.
-
 ## Contributing
 
 1. Fork the repository
