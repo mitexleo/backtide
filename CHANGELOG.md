@@ -1,3 +1,11 @@
+# 1.0.0 (2025-11-15)
+
+
+### Bug Fixes
+
+* add GITHUB_TOKEN environment variable to semantic-release ([8767576](https://github.com/mitexleo/backtide/commit/8767576ac027169ce2dbfde48cda7f03ef2b5a08))
+* update release workflow permissions and configuration ([bce22ac](https://github.com/mitexleo/backtide/commit/bce22acf843d81bd54b8448e9402c028941c0ca5))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
