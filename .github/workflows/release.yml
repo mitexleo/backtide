@@ -11,13 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -31,8 +31,6 @@ jobs:
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build binary
         if: steps.semantic.outputs.new_release_published == 'true'
@@ -49,8 +47,7 @@ jobs:
       - name: Upload release asset
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide
@@ -68,8 +65,7 @@ jobs:
       - name: Upload cross-platform assets
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-linux-amd64
@@ -79,8 +75,7 @@ jobs:
       - name: Upload macOS asset
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-darwin-amd64
@@ -90,8 +85,7 @@ jobs:
       - name: Upload Windows asset
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-windows-amd64.exe
