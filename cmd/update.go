@@ -59,7 +59,16 @@ func runUpdate(cmd *cobra.Command, args []string) {
 	// Get latest release info
 	latestRelease, err := getLatestRelease()
 	if err != nil {
-		fmt.Printf("❌ Failed to check for updates: %v\n", err)
+		// Check if error is due to no releases available
+		if strings.Contains(err.Error(), "could not find download URL") ||
+			strings.Contains(err.Error(), "could not find version") ||
+			strings.Contains(err.Error(), "no releases available") {
+			fmt.Println("❌ No releases available for update.")
+			fmt.Println("   Visit https://github.com/mitexleo/backtide/releases")
+			fmt.Println("   Or build from source: git clone https://github.com/mitexleo/backtide")
+		} else {
+			fmt.Printf("❌ Failed to check for updates: %v\n", err)
+		}
 		return
 	}
 
@@ -166,6 +175,10 @@ func parseReleaseJSON(data []byte) (string, string, error) {
 	tagPrefix := `"tag_name":"`
 	tagStart := strings.Index(jsonStr, tagPrefix)
 	if tagStart == -1 {
+		// Check if there are no releases
+		if strings.Contains(jsonStr, `"message":"Not Found"`) {
+			return "", "", fmt.Errorf("no releases available")
+		}
 		return "", "", fmt.Errorf("could not find version in response")
 	}
 	tagStart += len(tagPrefix)
@@ -186,7 +199,7 @@ func parseReleaseJSON(data []byte) (string, string, error) {
 		// Fallback to main binary
 		urlStart = strings.Index(jsonStr, urlPrefix+"backtide")
 		if urlStart == -1 {
-			return "", "", fmt.Errorf("could not find download URL for %s", binaryName)
+			return "", "", fmt.Errorf("no releases available")
 		}
 	}
 	urlStart += len(urlPrefix)
