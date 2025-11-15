@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +135,26 @@ func runS3Add(cmd *cobra.Command, args []string) {
 
 	fmt.Println("=== Add S3 Bucket Configuration ===")
 
+	// Check and install s3fs if needed
+	fmt.Println("🔧 Checking for s3fs dependency...")
+	checkS3FSManager := s3fs.NewS3FSManager(config.BucketConfig{})
+	if !checkS3FSManager.IsS3FSInstalled() {
+		fmt.Println("📦 s3fs not found. Installing...")
+		if err := checkS3FSManager.InstallS3FS(); err != nil {
+			fmt.Printf("❌ Failed to install s3fs: %v\n", err)
+			fmt.Println("💡 Please install s3fs manually:")
+			fmt.Println("   Ubuntu/Debian: sudo apt-get install s3fs")
+			fmt.Println("   CentOS/RHEL: sudo yum install s3fs-fuse")
+			fmt.Println("   Fedora: sudo dnf install s3fs-fuse")
+			fmt.Println("   openSUSE: sudo zypper install s3fs-fuse")
+			fmt.Println("   Alpine: sudo apk add s3fs-fuse")
+			return
+		}
+		fmt.Println("✅ s3fs installed successfully")
+	} else {
+		fmt.Println("✅ s3fs is already installed")
+	}
+
 	// Configure new bucket
 	newBucket := configureBucketForAdd()
 
@@ -255,6 +276,9 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Save bucket name before removal for success message
+	bucketName := bucketToRemove.Name
+
 	// Remove the bucket
 	cfg.Buckets = append(cfg.Buckets[:bucketIndex], cfg.Buckets[bucketIndex+1:]...)
 
@@ -272,7 +296,26 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 		fmt.Println("✅ Credentials cleaned up successfully")
 	}
 
-	fmt.Printf("✅ S3 bucket configuration '%s' removed successfully!\n", bucketToRemove.Name)
+	// Remove from fstab
+	fmt.Println("📝 Removing from /etc/fstab...")
+	s3fsManager := s3fs.NewS3FSManager(*bucketToRemove)
+	if err := s3fsManager.RemoveFromFstab(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not remove from /etc/fstab: %v\n", err)
+		fmt.Println("   You may need to remove it manually or run with sudo")
+	} else {
+		fmt.Println("✅ Removed from /etc/fstab")
+	}
+
+	// Remove mount point directory if empty
+	fmt.Println("📁 Removing mount point directory...")
+	if err := removeMountPointIfEmpty(bucketToRemove.MountPoint); err != nil {
+		fmt.Printf("⚠️  Warning: Could not remove mount point: %v\n", err)
+		fmt.Println("   You may need to remove it manually")
+	} else {
+		fmt.Println("✅ Mount point directory removed")
+	}
+
+	fmt.Printf("✅ S3 bucket configuration '%s' removed successfully!\n", bucketName)
 	if len(dependentJobs) > 0 {
 		fmt.Println("Remember to update dependent jobs with different bucket configurations.")
 	}
@@ -292,6 +335,26 @@ func runS3Test(cmd *cobra.Command, args []string) {
 		fmt.Println("No bucket configurations found to test.")
 		fmt.Println("Use 'backtide s3 add' to add a configuration first.")
 		return
+	}
+
+	// Check and install s3fs if needed
+	fmt.Println("🔧 Checking for s3fs dependency...")
+	checkS3FSManager := s3fs.NewS3FSManager(config.BucketConfig{})
+	if !checkS3FSManager.IsS3FSInstalled() {
+		fmt.Println("📦 s3fs not found. Installing...")
+		if err := checkS3FSManager.InstallS3FS(); err != nil {
+			fmt.Printf("❌ Failed to install s3fs: %v\n", err)
+			fmt.Println("💡 Please install s3fs manually:")
+			fmt.Println("   Ubuntu/Debian: sudo apt-get install s3fs")
+			fmt.Println("   CentOS/RHEL: sudo yum install s3fs-fuse")
+			fmt.Println("   Fedora: sudo dnf install s3fs-fuse")
+			fmt.Println("   openSUSE: sudo zypper install s3fs-fuse")
+			fmt.Println("   Alpine: sudo apk add s3fs-fuse")
+			return
+		}
+		fmt.Println("✅ s3fs installed successfully")
+	} else {
+		fmt.Println("✅ s3fs is already installed")
 	}
 
 	// If no specific bucket specified, show available options
@@ -497,18 +560,38 @@ func generateBucketID() string {
 
 // getCredentialsFilePath returns the path to the credentials file for a bucket
 func getCredentialsFilePath(bucketID string) string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "unknown"
+	// Try to get the original user's home directory, not root's when using sudo
+	homeDir := os.Getenv("SUDO_USER")
+	if homeDir == "" {
+		// Fall back to current user if not using sudo
+		homeDir = os.Getenv("HOME")
+	}
+	if homeDir == "" {
+		// Final fallback to UserHomeDir
+		if dir, err := os.UserHomeDir(); err == nil {
+			homeDir = dir
+		} else {
+			return "unknown"
+		}
 	}
 	return filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucketID))
 }
 
 // cleanupBucketCredentials removes the credentials file for a bucket
 func cleanupBucketCredentials(bucket config.BucketConfig) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
+	// Try to get the original user's home directory, not root's when using sudo
+	homeDir := os.Getenv("SUDO_USER")
+	if homeDir == "" {
+		// Fall back to current user if not using sudo
+		homeDir = os.Getenv("HOME")
+	}
+	if homeDir == "" {
+		// Final fallback to UserHomeDir
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %w", err)
+		}
 	}
 
 	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucket.ID))
@@ -520,6 +603,31 @@ func cleanupBucketCredentials(bucket config.BucketConfig) error {
 		}
 	}
 
+	return nil
+}
+
+// removeMountPointIfEmpty removes the mount point directory if it's empty
+func removeMountPointIfEmpty(mountPoint string) error {
+	// Check if directory exists
+	if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to do
+	}
+
+	// Check if directory is empty
+	dir, err := os.Open(mountPoint)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+
+	_, err = dir.Readdirnames(1)
+	if err == io.EOF {
+		// Directory is empty, safe to remove
+		if err := os.Remove(mountPoint); err != nil {
+			return err
+		}
+	}
+	// If directory is not empty, leave it alone
 	return nil
 }
 
@@ -542,8 +650,13 @@ func testBucket(bucket config.BucketConfig) {
 	// Check if s3fs is installed
 	fmt.Println("1. Checking if s3fs-fuse is installed...")
 	if !s3fsManager.IsS3FSInstalled() {
-		fmt.Println("❌ s3fs-fuse is not installed")
-		fmt.Println("💡 Install it with: sudo apt-get install s3fs (or your package manager)")
+		fmt.Println("❌ s3fs is not installed")
+		fmt.Println("💡 Install it with:")
+		fmt.Println("   Ubuntu/Debian: sudo apt-get install s3fs")
+		fmt.Println("   CentOS/RHEL: sudo yum install s3fs-fuse")
+		fmt.Println("   Fedora: sudo dnf install s3fs-fuse")
+		fmt.Println("   openSUSE: sudo zypper install s3fs-fuse")
+		fmt.Println("   Alpine: sudo apk add s3fs-fuse")
 		return
 	}
 	fmt.Println("✅ s3fs-fuse is installed")

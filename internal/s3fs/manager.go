@@ -27,45 +27,65 @@ func NewS3FSManager(cfg config.BucketConfig) *S3FSManager {
 func (sm *S3FSManager) InstallS3FS() error {
 	// Check if s3fs is already installed
 	if sm.isS3FSInstalled() {
-		fmt.Println("s3fs-fuse is already installed")
+		fmt.Println("❌ s3fs is not installed")
 		return nil
 	}
 
-	fmt.Println("Installing s3fs-fuse...")
+	fmt.Println("Installing s3fs...")
+	fmt.Println("⚠️  This operation requires sudo privileges.")
 
 	// Try different package managers
 	packageManagers := []string{"apt-get", "yum", "dnf", "zypper", "apk"}
 	var installCmd *exec.Cmd
+	var needsSudo bool = true
 
 	for _, pm := range packageManagers {
 		if sm.isPackageManagerAvailable(pm) {
 			switch pm {
 			case "apt-get":
-				installCmd = exec.Command("apt-get", "update")
+				// Try without sudo first
+				if sm.isPackageManagerAvailable("apt") {
+					installCmd = exec.Command("apt", "update")
+					if installCmd.Run() == nil {
+						installCmd = exec.Command("apt", "install", "-y", "s3fs")
+						needsSudo = false
+						break
+					}
+				}
+				// Fallback to apt-get with sudo
+				installCmd = exec.Command("sudo", "apt-get", "update")
 				if err := installCmd.Run(); err != nil {
 					return fmt.Errorf("failed to update package lists: %w", err)
 				}
-				installCmd = exec.Command("apt-get", "install", "-y", "s3fs")
+				installCmd = exec.Command("sudo", "apt-get", "install", "-y", "s3fs")
 			case "yum", "dnf":
-				installCmd = exec.Command(pm, "install", "-y", "s3fs-fuse")
+				installCmd = exec.Command("sudo", pm, "install", "-y", "s3fs")
 			case "zypper":
-				installCmd = exec.Command("zypper", "install", "-y", "s3fs")
+				installCmd = exec.Command("sudo", "zypper", "install", "-y", "s3fs")
 			case "apk":
-				installCmd = exec.Command("apk", "add", "s3fs-fuse")
+				installCmd = exec.Command("sudo", "apk", "add", "s3fs")
 			}
 			break
 		}
 	}
 
 	if installCmd == nil {
-		return fmt.Errorf("no supported package manager found. Please install s3fs-fuse manually")
+		return fmt.Errorf("no supported package manager found. Please install s3fs manually")
+	}
+
+	if needsSudo {
+		fmt.Println("🔐 Running with sudo to install s3fs...")
+		fmt.Println("   You may be prompted for your password")
 	}
 
 	if err := installCmd.Run(); err != nil {
-		return fmt.Errorf("failed to install s3fs-fuse: %w", err)
+		if needsSudo {
+			return fmt.Errorf("failed to install s3fs with sudo: %w\n💡 Try running: sudo apt-get install s3fs", err)
+		}
+		return fmt.Errorf("failed to install s3fs: %w", err)
 	}
 
-	fmt.Println("s3fs-fuse installed successfully")
+	fmt.Println("✅ s3fs installed successfully")
 	return nil
 }
 
@@ -77,9 +97,19 @@ func (sm *S3FSManager) SetupS3FS() error {
 	}
 
 	// Create credentials file in user-specific location, per bucket
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
+	// Try to get the original user's home directory, not root's when using sudo
+	homeDir := os.Getenv("SUDO_USER")
+	if homeDir == "" {
+		// Fall back to current user if not using sudo
+		homeDir = os.Getenv("HOME")
+	}
+	if homeDir == "" {
+		// Final fallback to UserHomeDir
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %w", err)
+		}
 	}
 
 	credsDir := filepath.Join(homeDir, ".config", "backtide", "s3-credentials")
@@ -98,6 +128,29 @@ func (sm *S3FSManager) SetupS3FS() error {
 	return nil
 }
 
+// InstallS3FSWithPrompt installs s3fs with user confirmation
+func (sm *S3FSManager) InstallS3FSWithPrompt() error {
+	// Check if s3fs is already installed
+	if sm.isS3FSInstalled() {
+		fmt.Println("s3fs is already installed")
+		return nil
+	}
+
+	fmt.Println("s3fs is required for S3 bucket operations but is not installed.")
+	fmt.Print("Do you want to install it now? (y/N): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response != "y" && response != "yes" {
+		return fmt.Errorf("s3fs installation cancelled by user")
+	}
+
+	fmt.Println("Installing s3fs...")
+	return sm.InstallS3FS()
+}
+
 // MountS3FS mounts the S3 bucket
 func (sm *S3FSManager) MountS3FS() error {
 	// Check if already mounted
@@ -107,9 +160,19 @@ func (sm *S3FSManager) MountS3FS() error {
 	}
 
 	// Get credentials file path for this specific bucket
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
+	// Try to get the original user's home directory, not root's when using sudo
+	homeDir := os.Getenv("SUDO_USER")
+	if homeDir == "" {
+		// Fall back to current user if not using sudo
+		homeDir = os.Getenv("HOME")
+	}
+	if homeDir == "" {
+		// Final fallback to UserHomeDir
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %w", err)
+		}
 	}
 	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
 
@@ -167,9 +230,19 @@ func (sm *S3FSManager) UnmountS3FS() error {
 // AddToFstab adds S3FS mount to /etc/fstab for persistence
 func (sm *S3FSManager) AddToFstab() error {
 	// Get credentials file path for fstab for this specific bucket
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
+	// Try to get the original user's home directory, not root's when using sudo
+	homeDir := os.Getenv("SUDO_USER")
+	if homeDir == "" {
+		// Fall back to current user if not using sudo
+		homeDir = os.Getenv("HOME")
+	}
+	if homeDir == "" {
+		// Final fallback to UserHomeDir
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %w", err)
+		}
 	}
 	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
 
