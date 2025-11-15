@@ -34,11 +34,16 @@ jobs:
             @semantic-release/changelog
             @semantic-release/git
 
-      - name: Build binary
+      - name: Build all binaries
         if: steps.semantic.outputs.new_release_published == 'true'
         run: |
           VERSION=${{ steps.semantic.outputs.new_version }}
+          # Build main binary
           go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide
+          # Build cross-platform binaries
+          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-linux-amd64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-darwin-amd64
+          GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-windows-amd64.exe
 
       - name: Test binary
         if: steps.semantic.outputs.new_release_published == 'true'
@@ -46,48 +51,36 @@ jobs:
           ./backtide version
           ./backtide --help
 
-      - name: Upload release asset
+      - name: Upload main binary
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide
           asset_name: backtide
           asset_content_type: application/octet-stream
 
-      - name: Build cross-platform binaries
-        if: steps.semantic.outputs.new_release_published == 'true'
-        run: |
-          VERSION=${{ steps.semantic.outputs.new_version }}
-          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-linux-amd64
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-darwin-amd64
-          GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-windows-amd64.exe
-
-      - name: Upload cross-platform assets
+      - name: Upload Linux binary
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-linux-amd64
           asset_name: backtide-linux-amd64
           asset_content_type: application/octet-stream
 
-      - name: Upload macOS asset
+      - name: Upload macOS binary
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-darwin-amd64
           asset_name: backtide-darwin-amd64
           asset_content_type: application/octet-stream
 
-      - name: Upload Windows asset
+      - name: Upload Windows binary
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/upload-release-asset@v1
-
         with:
           upload_url: ${{ steps.semantic.outputs.upload_url }}
           asset_path: ./backtide-windows-amd64.exe
