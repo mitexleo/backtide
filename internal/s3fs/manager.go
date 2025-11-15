@@ -13,11 +13,11 @@ import (
 
 // S3FSManager handles S3FS mount operations
 type S3FSManager struct {
-	config config.S3Config
+	config config.BucketConfig
 }
 
 // NewS3FSManager creates a new S3FS manager instance
-func NewS3FSManager(cfg config.S3Config) *S3FSManager {
+func NewS3FSManager(cfg config.BucketConfig) *S3FSManager {
 	return &S3FSManager{
 		config: cfg,
 	}

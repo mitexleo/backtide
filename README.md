@@ -80,7 +80,7 @@ sudo mv backtide /usr/local/bin/
 *Alternative: Manual configuration*
 ```bash
 backtide init --skip-interactive
-nano ~/.backtide.yaml  # Edit manually
+nano ~/.backtide.toml  # Edit manually
 ```
 
 ## Job-Based Backup System
@@ -98,45 +98,62 @@ Backtide now supports multiple backup jobs with different configurations:
 - **S3-Only Default**: No local storage to prevent disk exhaustion
 
 ### Example Multi-Job Configuration:
-```yaml
-jobs:
-  - id: job-20240115-143000
-    name: daily-docker-backup
-    description: Daily backup of Docker volumes
-    enabled: true
-    schedule:
-      type: systemd
-      interval: daily
-      enabled: true
-    directories:
-      - path: /var/lib/docker/volumes
-        name: docker-volumes
-        compression: true
-    retention:
-      keep_days: 7
-      keep_count: 7
-      keep_monthly: 0
-    skip_docker: false
-    skip_s3: false
-  
-  - id: job-20240115-143001
-    name: weekly-app-backup  
-    description: Weekly backup of application data
-    enabled: true
-    schedule:
-      type: systemd
-      interval: weekly
-      enabled: true
-    directories:
-      - path: /opt/myapp/data
-        name: app-data
-        compression: true
-    retention:
-      keep_days: 30
-      keep_count: 4
-      keep_monthly: 6
-    skip_docker: true
-    skip_s3: false
+```toml
+[[jobs]]
+id = 'job-20240115-143000'
+name = 'daily-docker-backup'
+description = 'Daily backup of Docker volumes'
+enabled = true
+bucket_id = ''
+skip_docker = false
+skip_s3 = false
+
+[jobs.schedule]
+type = 'systemd'
+interval = 'daily'
+enabled = true
+
+[[jobs.directories]]
+path = '/var/lib/docker/volumes'
+name = 'docker-volumes'
+compression = true
+
+[jobs.retention]
+keep_days = 7
+keep_count = 7
+keep_monthly = 0
+
+[jobs.storage]
+local = false
+s3 = true
+
+[[jobs]]
+id = 'job-20240115-143001'
+name = 'weekly-app-backup'
+description = 'Weekly backup of application data'
+enabled = true
+bucket_id = ''
+skip_docker = true
+skip_s3 = false
+
+[jobs.schedule]
+type = 'systemd'
+interval = 'weekly'
+enabled = true
+
+[[jobs.directories]]
+path = '/opt/myapp/data'
+name = 'app-data'
+compression = true
+
+[jobs.retention]
+keep_days = 30
+keep_count = 4
+keep_monthly = 6
+
+[jobs.storage]
+local = false
+s3 = true
 ```
 
 ## Job Management
@@ -178,41 +195,102 @@ Each job shows:
 
 ### Example Single Job Configuration
 
-```yaml
-# ~/.backtide.yaml
-backup_path: ""  # Empty = S3-only mode (recommended)
-temp_path: /tmp/backtide
+```toml
+# ~/.backtide.toml
+backup_path = ''  # Empty = S3-only mode (recommended)
+temp_path = '/tmp/backtide'
 
-jobs:
-  - name: default-backup
-    description: Default backup job
-    enabled: true
-    schedule:
-      type: systemd
-      interval: daily
-      enabled: true
-    directories:
-      - path: /var/lib/docker/volumes
-        name: docker-volumes
-        compression: true
-      - path: /opt/myapp/data
-        name: app-data
-        compression: true
-    s3:
-      bucket: my-backup-bucket
-      region: us-east-1
-      access_key: YOUR_ACCESS_KEY
-      secret_key: YOUR_SECRET_KEY
-      endpoint: ""
-      mount_point: /mnt/s3backup
-      use_path_style: false
-    retention:
-      keep_days: 30
-      keep_count: 10
-      keep_monthly: 6
-    skip_docker: false
-    skip_s3: false
+[[jobs]]
+id = 'job-default'
+name = 'default-backup'
+description = 'Default backup job'
+enabled = true
+bucket_id = ''
+skip_docker = false
+skip_s3 = false
+
+[jobs.schedule]
+type = 'systemd'
+interval = 'daily'
+enabled = true
+
+[[jobs.directories]]
+path = '/var/lib/docker/volumes'
+name = 'docker-volumes'
+compression = true
+
+[[jobs.directories]]
+path = '/opt/myapp/data'
+name = 'app-data'
+compression = true
+
+[jobs.retention]
+keep_days = 30
+keep_count = 10
+keep_monthly = 6
+
+[jobs.storage]
+local = false
+s3 = true
+
+# S3 bucket configuration (separate from jobs)
+[[buckets]]
+id = 'bucket-default'
+name = 'my-backup-bucket'
+bucket = 'my-backup-bucket'
+region = 'us-east-1'
+access_key = 'YOUR_ACCESS_KEY'
+secret_key = 'YOUR_SECRET_KEY'
+endpoint = ''
+mount_point = '/mnt/s3backup'
+use_path_style = false
+provider = 'AWS S3'
+description = 'Default backup bucket'
 ```
+
+### TOML Configuration Format
+
+Backtide now uses TOML format for configuration files (`~/.backtide.toml`). TOML provides:
+
+- **Better readability**: Clear, predictable syntax
+- **No whitespace sensitivity**: Unlike YAML, indentation doesn't matter
+- **Type safety**: Explicit typing prevents configuration errors
+- **Array of tables**: Clean syntax for lists of objects using `[[ ]]`
+
+#### Understanding Double Brackets `[[ ]]`
+
+Double brackets `[[ ]]` in TOML create **arrays of tables** (lists of objects):
+
+```toml
+# Array of job objects
+[[jobs]]
+id = 'job-1'
+name = 'first-job'
+
+[[jobs]]
+id = 'job-2'
+name = 'second-job'
+
+# Array of directory objects within each job
+[[jobs.directories]]
+path = '/path1'
+name = 'dir1'
+
+[[jobs.directories]]
+path = '/path2'
+name = 'dir2'
+
+# Array of bucket objects
+[[buckets]]
+id = 'bucket-1'
+name = 'first-bucket'
+
+[[buckets]]
+id = 'bucket-2'
+name = 'second-bucket'
+```
+
+This is equivalent to YAML's list syntax but more explicit and less error-prone.
 
 ### Job Configuration Options
 
@@ -227,10 +305,11 @@ Each backup job supports:
   - `interval`: cron expression or systemd calendar
   - `enabled`: Whether scheduling is active
 - **directories**: List of directories to backup
-- **s3**: S3 storage configuration
+- **bucket_id**: Reference to S3 bucket configuration
 - **retention**: Backup retention policy
 - **skip_docker**: Skip Docker container management
 - **skip_s3**: Skip S3 operations
+- **storage**: Storage configuration (local, S3, or both)
 
 #### Directory Configuration
 
@@ -239,7 +318,13 @@ Each backup job supports:
   - `name`: Backup identifier name
   - `compression`: Enable/disable compression
 
-- **s3**: S3 bucket configuration
+#### S3 Bucket Configuration (Separate Management)
+
+S3 buckets are now managed separately from jobs and can be reused:
+
+- **buckets**: Array of S3 bucket configurations
+  - `id`: Unique bucket identifier
+  - `name`: Human-readable bucket name
   - `bucket`: S3 bucket name
   - `region`: AWS region (for AWS only, leave empty for other providers)
   - `access_key`: S3 access key
@@ -247,11 +332,19 @@ Each backup job supports:
   - `endpoint`: S3-compatible endpoint URL (required for non-AWS providers)
   - `mount_point`: Local mount point
   - `use_path_style`: Use path-style S3 URLs (required for Backblaze B2)
+  - `provider`: Provider type (AWS S3, Backblaze B2, etc.)
+  - `description`: Optional description
 
 - **retention**: Backup retention policy
   - `keep_days`: Keep backups for X days
   - `keep_count`: Keep last X backups
   - `keep_monthly`: Keep X monthly backups
+
+#### Storage Configuration
+
+- **storage**: Storage mode configuration
+  - `local`: Enable local storage (requires `backup_path`)
+  - `s3`: Enable S3 storage (requires `bucket_id` reference)
 
 ## Scheduling & Automation
 
@@ -290,6 +383,24 @@ backtide cron install --job daily-docker-backup
 # Install cron job with custom schedule
 backtide cron install --job weekly-app-backup --schedule "0 3 * * 0"
 ```
+
+## S3 Bucket Management Features
+
+Backtide now supports separate S3 bucket management with the following benefits:
+
+- **Bucket Reusability**: Single bucket configuration can serve multiple backup jobs
+- **Separate Configuration**: Buckets managed independently from job settings
+- **Dependency Tracking**: Prevents removal of buckets used by active jobs
+- **Provider Support**: All major S3-compatible providers (AWS, Backblaze B2, Wasabi, etc.)
+- **Mount Point Management**: Each bucket has independent mount configuration
+
+### Key Features:
+
+1. **Bucket List with Usage Counts**: See which jobs use each bucket
+2. **Interactive Bucket Creation**: Guided setup for all major providers
+3. **Safe Removal**: Dependency checking prevents orphaned job references
+4. **Connectivity Testing**: Test bucket access and permissions
+5. **Provider Defaults**: Automatic configuration for common providers
 
 ## Usage
 
@@ -335,6 +446,25 @@ backtide jobs disable weekly-app-backup
 
 # Show job status and next run times
 backtide jobs status
+```
+
+### S3 Bucket Management
+
+```bash
+# List all S3 bucket configurations
+backtide s3 list
+
+# Add a new S3 bucket configuration
+backtide s3 add
+
+# Remove a bucket configuration
+backtide s3 remove bucket-name
+
+# Force remove without confirmation
+backtide s3 remove bucket-name --force
+
+# Test bucket connectivity
+backtide s3 test bucket-name
 ```
 
 ### Restore Operations
@@ -468,58 +598,83 @@ Choose from common backup targets:
 Backtide supports any S3-compatible storage provider. Here are common configurations:
 
 #### AWS S3 (Default)
-```yaml
-s3:
-  bucket: my-backup-bucket
-  region: us-east-1
-  access_key: YOUR_ACCESS_KEY
-  secret_key: YOUR_SECRET_KEY
-  endpoint: ""  # Leave empty for AWS
-  use_path_style: false
+```toml
+[[buckets]]
+id = 'bucket-aws'
+name = 'AWS Backup Bucket'
+bucket = 'my-backup-bucket'
+region = 'us-east-1'
+access_key = 'YOUR_ACCESS_KEY'
+secret_key = 'YOUR_SECRET_KEY'
+endpoint = ''  # Leave empty for AWS
+mount_point = '/mnt/s3backup'
+use_path_style = false
+provider = 'AWS S3'
+description = 'AWS S3 backup bucket'
 ```
 
 #### Backblaze B2 (Recommended)
-```yaml
-s3:
-  bucket: my-backup-bucket
-  region: ""  # Not used for B2
-  access_key: YOUR_APPLICATION_KEY_ID
-  secret_key: YOUR_APPLICATION_KEY
-  endpoint: https://s3.us-west-002.backblazeb2.com  # Your B2 endpoint
-  use_path_style: true  # REQUIRED for B2
+```toml
+[[buckets]]
+id = 'bucket-b2'
+name = 'Backblaze B2 Bucket'
+bucket = 'my-backup-bucket'
+region = ''  # Not used for B2
+access_key = 'YOUR_APPLICATION_KEY_ID'
+secret_key = 'YOUR_APPLICATION_KEY'
+endpoint = 'https://s3.us-west-002.backblazeb2.com'  # Your B2 endpoint
+mount_point = '/mnt/s3backup'
+use_path_style = true  # REQUIRED for B2
+provider = 'Backblaze B2'
+description = 'Backblaze B2 backup bucket'
 ```
 
 #### Wasabi
-```yaml
-s3:
-  bucket: my-backup-bucket
-  region: us-east-1  # Your Wasabi region
-  access_key: YOUR_ACCESS_KEY
-  secret_key: YOUR_SECRET_KEY
-  endpoint: https://s3.wasabisys.com  # Wasabi endpoint
-  use_path_style: false
+```toml
+[[buckets]]
+id = 'bucket-wasabi'
+name = 'Wasabi Bucket'
+bucket = 'my-backup-bucket'
+region = 'us-east-1'  # Your Wasabi region
+access_key = 'YOUR_ACCESS_KEY'
+secret_key = 'YOUR_SECRET_KEY'
+endpoint = 'https://s3.wasabisys.com'  # Wasabi endpoint
+mount_point = '/mnt/s3backup'
+use_path_style = false
+provider = 'Wasabi'
+description = 'Wasabi backup bucket'
 ```
 
 #### DigitalOcean Spaces
-```yaml
-s3:
-  bucket: my-backup-bucket
-  region: nyc3  # Your DO region
-  access_key: YOUR_SPACES_KEY
-  secret_key: YOUR_SPACES_SECRET
-  endpoint: https://nyc3.digitaloceanspaces.com  # Your DO endpoint
-  use_path_style: false
+```toml
+[[buckets]]
+id = 'bucket-do'
+name = 'DigitalOcean Spaces'
+bucket = 'my-backup-bucket'
+region = 'nyc3'  # Your DO region
+access_key = 'YOUR_SPACES_KEY'
+secret_key = 'YOUR_SPACES_SECRET'
+endpoint = 'https://nyc3.digitaloceanspaces.com'  # Your DO endpoint
+mount_point = '/mnt/s3backup'
+use_path_style = false
+provider = 'DigitalOcean Spaces'
+description = 'DigitalOcean Spaces bucket'
 ```
 
 #### MinIO
-```yaml
-s3:
-  bucket: my-backup-bucket
-  region: ""  # Not used for MinIO
-  access_key: YOUR_MINIO_ACCESS_KEY
-  secret_key: YOUR_MINIO_SECRET_KEY
-  endpoint: http://localhost:9000  # Your MinIO endpoint
-  use_path_style: true  # REQUIRED for MinIO
+```toml
+[[buckets]]
+id = 'bucket-minio'
+name = 'MinIO Bucket'
+bucket = 'my-backup-bucket'
+region = ''  # Not used for MinIO
+access_key = 'YOUR_MINIO_ACCESS_KEY'
+secret_key = 'YOUR_MINIO_SECRET_KEY'
+endpoint = 'http://localhost:9000'  # Your MinIO endpoint
+mount_point = '/mnt/s3backup'
+use_path_style = true  # REQUIRED for MinIO
+provider = 'MinIO'
+description = 'MinIO backup bucket'
 ```
 
 ## How It Works
@@ -529,22 +684,27 @@ s3:
 Backtide uses a job-based system where each backup job is completely independent:
 
 ```
-Configuration File (~/.backtide.yaml)
-├── Job: "daily-docker-backup"
-│   ├── Schedule: Daily at 2 AM
-│   ├── Directories: /var/lib/docker/volumes
-│   ├── Retention: 7 days
-│   └── S3: Backblaze B2
-├── Job: "weekly-app-backup"  
-│   ├── Schedule: Weekly on Sunday
-│   ├── Directories: /opt/myapp/data
-│   ├── Retention: 30 days
-│   └── S3: AWS S3
-└── Job: "monthly-archive"
-    ├── Schedule: Monthly on 1st
-    ├── Directories: /home/user/documents
-    ├── Retention: 1 year
-    └── S3: Wasabi
+Configuration File (~/.backtide.toml)
+├── Buckets (Separate Management)
+│   ├── "aws-backup-bucket" (AWS S3)
+│   ├── "b2-backup-bucket" (Backblaze B2)
+│   └── "wasabi-bucket" (Wasabi)
+└── Jobs (Reference Buckets by ID)
+    ├── Job: "daily-docker-backup"
+    │   ├── Schedule: Daily at 2 AM
+    │   ├── Directories: /var/lib/docker/volumes
+    │   ├── Retention: 7 days
+    │   └── Bucket: "b2-backup-bucket"
+    ├── Job: "weekly-app-backup"  
+    │   ├── Schedule: Weekly on Sunday
+    │   ├── Directories: /opt/myapp/data
+    │   ├── Retention: 30 days
+    │   └── Bucket: "aws-backup-bucket"
+    └── Job: "monthly-archive"
+        ├── Schedule: Monthly on 1st
+        ├── Directories: /home/user/documents
+        ├── Retention: 1 year
+        └── Bucket: "wasabi-bucket"
 ```
 
 ### Systemd Service Structure
@@ -555,7 +715,7 @@ When using `systemd-jobs install`:
 ├── backtide.service          # Single service for all jobs
 └── backtide.timer            # Single timer for scheduled execution
 
-~/.backtide.yaml              # Central configuration for all jobs
+~/.backtide.toml              # Central configuration for all jobs and buckets
 /etc/systemd/system/
 ├── backtide.service          # Single service reads config directly
 └── backtide.timer            # Timer for scheduled execution
@@ -632,7 +792,7 @@ Benefits:
     └── backup-2024-01-14-02-00-00/
         └── metadata.json     # S3 metadata
 
-~/.backtide.yaml              # Central configuration for all jobs
+~/.backtide.toml              # Central configuration for all jobs
 ```
 
 **Disaster Recovery**: Critical metadata stored in S3 ensures backups survive server loss.
@@ -727,7 +887,7 @@ go build -o backtide
 go test ./...
 
 # Run with specific config
-backtide --config /path/to/config.yaml backup
+backtide --config /path/to/config.toml backup
 ```
 
 ## Contributing

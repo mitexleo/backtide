@@ -1,12 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // DefaultConfig returns a default configuration
@@ -14,16 +13,8 @@ func DefaultConfig() *BackupConfig {
 	return &BackupConfig{
 		BackupPath: "", // Empty = no local storage, use S3 only
 		TempPath:   "/tmp/backtide",
-		S3Config: S3Config{
-			MountPoint:   "/mnt/s3backup",
-			Endpoint:     "",    // Set to your S3-compatible endpoint (e.g., https://s3.us-west-002.backblazeb2.com)
-			UsePathStyle: false, // Set to true for path-style endpoints
-		},
-		RetentionPolicy: RetentionPolicy{
-			KeepDays:  30,
-			KeepCount: 10,
-		},
-		Jobs: []BackupJob{},
+		Jobs:       []BackupJob{},
+		Buckets:    []BucketConfig{},
 	}
 }
 
@@ -40,11 +31,9 @@ func LoadConfig(configPath string) (*BackupConfig, error) {
 
 	config := DefaultConfig()
 
-	// Try to parse as YAML first, then JSON
-	if err := yaml.Unmarshal(data, config); err != nil {
-		if err := json.Unmarshal(data, config); err != nil {
-			return nil, fmt.Errorf("failed to parse config file as YAML or JSON: %w", err)
-		}
+	// Parse as TOML
+	if err := toml.Unmarshal(data, config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file as TOML: %w", err)
 	}
 
 	// Validate the configuration
@@ -67,7 +56,7 @@ func SaveConfig(config *BackupConfig, configPath string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	data, err := yaml.Marshal(config)
+	data, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -81,9 +70,43 @@ func SaveConfig(config *BackupConfig, configPath string) error {
 
 // ValidateConfig validates the configuration
 func ValidateConfig(config *BackupConfig) error {
-	// Check if using legacy config or new job-based config
-	if len(config.Jobs) == 0 && len(config.Directories) == 0 {
-		return fmt.Errorf("no backup jobs or directories configured")
+	// Allow empty config for S3 management operations
+	if len(config.Jobs) == 0 && len(config.Buckets) == 0 {
+		return nil
+	}
+
+	// Validate bucket configurations
+	bucketIDs := make(map[string]bool)
+	bucketNames := make(map[string]bool)
+	for i, bucket := range config.Buckets {
+		if bucket.ID == "" {
+			return fmt.Errorf("bucket ID cannot be empty for bucket %d", i)
+		}
+		if bucketIDs[bucket.ID] {
+			return fmt.Errorf("duplicate bucket ID: %s", bucket.ID)
+		}
+		bucketIDs[bucket.ID] = true
+
+		if bucket.Name == "" {
+			return fmt.Errorf("bucket name cannot be empty for bucket %s", bucket.ID)
+		}
+		if bucketNames[bucket.Name] {
+			return fmt.Errorf("duplicate bucket name: %s", bucket.Name)
+		}
+		bucketNames[bucket.Name] = true
+
+		if bucket.Bucket == "" {
+			return fmt.Errorf("S3 bucket name cannot be empty for bucket %s", bucket.ID)
+		}
+		if bucket.AccessKey == "" {
+			return fmt.Errorf("S3 access key cannot be empty for bucket %s", bucket.ID)
+		}
+		if bucket.SecretKey == "" {
+			return fmt.Errorf("S3 secret key cannot be empty for bucket %s", bucket.ID)
+		}
+		if bucket.MountPoint == "" {
+			return fmt.Errorf("S3 mount point cannot be empty for bucket %s", bucket.ID)
+		}
 	}
 
 	// Validate jobs if using job-based config
@@ -106,57 +129,42 @@ func ValidateConfig(config *BackupConfig) error {
 				}
 			}
 
-			if !job.SkipS3 {
-				if job.S3Config.Bucket == "" {
-					return fmt.Errorf("S3 bucket name cannot be empty for job %s", job.Name)
+			// Validate S3 storage configuration
+			if !job.SkipS3 && job.Storage.S3 {
+				if job.BucketID == "" {
+					return fmt.Errorf("bucket ID cannot be empty for job %s when using S3 storage", job.Name)
 				}
-				if job.S3Config.AccessKey == "" {
-					return fmt.Errorf("S3 access key cannot be empty for job %s", job.Name)
+
+				// Validate bucket ID reference
+				bucketExists := false
+				for _, bucket := range config.Buckets {
+					if bucket.ID == job.BucketID {
+						bucketExists = true
+						break
+					}
 				}
-				if job.S3Config.SecretKey == "" {
-					return fmt.Errorf("S3 secret key cannot be empty for job %s", job.Name)
+				if !bucketExists {
+					return fmt.Errorf("job %s references non-existent bucket ID: %s", job.Name, job.BucketID)
 				}
+			} else if job.Storage.S3 && job.BucketID == "" {
+				// Job has S3 storage enabled but no bucket configured
+				return fmt.Errorf("job %s has S3 storage enabled but no bucket ID configured", job.Name)
 			}
-		}
-	} else {
-		// Legacy config validation
-		if len(config.Directories) == 0 {
-			return fmt.Errorf("at least one directory must be specified")
-		}
-
-		for i, dir := range config.Directories {
-			if dir.Path == "" {
-				return fmt.Errorf("directory path cannot be empty for directory %d", i)
-			}
-			if dir.Name == "" {
-				return fmt.Errorf("directory name cannot be empty for directory %d", i)
-			}
-		}
-
-		if config.S3Config.Bucket == "" {
-			return fmt.Errorf("S3 bucket name cannot be empty")
-		}
-
-		if config.S3Config.AccessKey == "" {
-			return fmt.Errorf("S3 access key cannot be empty")
-		}
-
-		if config.S3Config.SecretKey == "" {
-			return fmt.Errorf("S3 secret key cannot be empty")
 		}
 	}
 
-	if config.S3Config.Endpoint == "" {
-		fmt.Println("Warning: No S3 endpoint specified. Using AWS default endpoints.")
-		fmt.Println("For S3-compatible providers (Backblaze B2, Wasabi, etc.), set the endpoint in config.")
+	// Check if any job uses local storage
+	usesLocalStorage := false
+	for _, job := range config.Jobs {
+		if job.Storage.Local {
+			usesLocalStorage = true
+			break
+		}
 	}
 
-	if config.S3Config.MountPoint == "" {
-		return fmt.Errorf("S3 mount point cannot be empty")
-	}
-
-	if config.BackupPath == "" {
-		return fmt.Errorf("backup path cannot be empty")
+	// Only require backup path if local storage is used
+	if usesLocalStorage && config.BackupPath == "" {
+		return fmt.Errorf("backup path cannot be empty when using local storage")
 	}
 
 	if config.TempPath == "" {
@@ -170,15 +178,13 @@ func ValidateConfig(config *BackupConfig) error {
 func FindConfigFile() string {
 	// Common configuration file locations
 	locations := []string{
-		"/etc/backtide/config.yaml",
-		"/etc/backtide/config.yml",
-		"/etc/backtide/config.json",
-		"/usr/local/etc/backtide/config.yaml",
-		"~/.config/backtide/config.yaml",
-		"~/.backtide.yaml",
-		"./backtide.yaml",
-		"./backtide.yml",
-		"./backtide.json",
+		"/etc/backtide/config.toml",
+		"/etc/backtide/backtide.toml",
+		"/usr/local/etc/backtide/config.toml",
+		"~/.config/backtide/config.toml",
+		"~/.backtide.toml",
+		"./backtide.toml",
+		"./config.toml",
 	}
 
 	for _, location := range locations {
@@ -229,8 +235,8 @@ func CreateDefaultConfig(configPath string) error {
 			KeepCount: 10,
 		},
 		Storage: StorageConfig{
-			Local: false,
-			S3:    true,
+			Local: true,
+			S3:    false,
 		},
 		SkipDocker: false,
 		SkipS3:     false,

@@ -4,121 +4,123 @@ import (
 	"time"
 )
 
+// BucketConfig represents a standalone S3 bucket configuration
+type BucketConfig struct {
+	ID           string `toml:"id"`
+	Name         string `toml:"name"`
+	Bucket       string `toml:"bucket"`
+	Region       string `toml:"region"`
+	AccessKey    string `toml:"access_key"`
+	SecretKey    string `toml:"secret_key"`
+	Endpoint     string `toml:"endpoint"`
+	MountPoint   string `toml:"mount_point"`
+	UsePathStyle bool   `toml:"use_path_style"`
+	Provider     string `toml:"provider"`
+	Description  string `toml:"description"`
+}
+
 // BackupConfig represents the configuration for backup operations
 type BackupConfig struct {
-	Jobs            []BackupJob       `json:"jobs" yaml:"jobs"`
-	Directories     []DirectoryConfig `json:"directories" yaml:"directories"` // Legacy support
-	S3Config        S3Config          `json:"s3" yaml:"s3"`                   // Legacy support
-	RetentionPolicy RetentionPolicy   `json:"retention" yaml:"retention"`     // Legacy support
-	BackupPath      string            `json:"backup_path" yaml:"backup_path"`
-	TempPath        string            `json:"temp_path" yaml:"temp_path"`
+	Jobs       []BackupJob    `toml:"jobs"`
+	Buckets    []BucketConfig `toml:"buckets"`
+	BackupPath string         `toml:"backup_path"`
+	TempPath   string         `toml:"temp_path"`
 }
 
 // BackupJob represents a complete backup configuration with scheduling
 type BackupJob struct {
-	ID          string            `json:"id" yaml:"id"`
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
-	Schedule    ScheduleConfig    `json:"schedule" yaml:"schedule"`
-	Directories []DirectoryConfig `json:"directories" yaml:"directories"`
-	S3Config    S3Config          `json:"s3" yaml:"s3"`
-	Retention   RetentionPolicy   `json:"retention" yaml:"retention"`
-	SkipDocker  bool              `json:"skip_docker" yaml:"skip_docker"`
-	SkipS3      bool              `json:"skip_s3" yaml:"skip_s3"`
-	Storage     StorageConfig     `json:"storage" yaml:"storage"`
+	ID          string            `toml:"id"`
+	Name        string            `toml:"name"`
+	Description string            `toml:"description"`
+	Enabled     bool              `toml:"enabled"`
+	Schedule    ScheduleConfig    `toml:"schedule"`
+	Directories []DirectoryConfig `toml:"directories"`
+	BucketID    string            `toml:"bucket_id"`
+	Retention   RetentionPolicy   `toml:"retention"`
+	SkipDocker  bool              `toml:"skip_docker"`
+	SkipS3      bool              `toml:"skip_s3"`
+	Storage     StorageConfig     `toml:"storage"`
 }
 
 // ScheduleConfig represents backup scheduling configuration
 type ScheduleConfig struct {
-	Type     string `json:"type" yaml:"type"`         // "systemd", "cron", "manual"
-	Interval string `json:"interval" yaml:"interval"` // cron expression or systemd calendar
-	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	Type     string `toml:"type"`
+	Interval string `toml:"interval"`
+	Enabled  bool   `toml:"enabled"`
 }
 
 // DirectoryConfig represents configuration for a single directory to backup
 type DirectoryConfig struct {
-	Path        string `json:"path" yaml:"path"`
-	Name        string `json:"name" yaml:"name"`
-	Compression bool   `json:"compression" yaml:"compression"`
-}
-
-// S3Config represents S3 bucket configuration
-type S3Config struct {
-	Bucket       string `json:"bucket" yaml:"bucket"`
-	Region       string `json:"region" yaml:"region"`
-	AccessKey    string `json:"access_key" yaml:"access_key"`
-	SecretKey    string `json:"secret_key" yaml:"secret_key"`
-	Endpoint     string `json:"endpoint" yaml:"endpoint"`
-	MountPoint   string `json:"mount_point" yaml:"mount_point"`
-	UsePathStyle bool   `json:"use_path_style" yaml:"use_path_style"`
+	Path        string `toml:"path"`
+	Name        string `toml:"name"`
+	Compression bool   `toml:"compression"`
 }
 
 // StorageConfig defines where backups should be stored
 type StorageConfig struct {
-	Local bool `json:"local" yaml:"local"`
-	S3    bool `json:"s3" yaml:"s3"`
+	Local bool `toml:"local"`
+	S3    bool `toml:"s3"`
 }
 
 // RetentionPolicy defines how long to keep backups
 type RetentionPolicy struct {
-	KeepDays    int `json:"keep_days" yaml:"keep_days"`
-	KeepCount   int `json:"keep_count" yaml:"keep_count"`
-	KeepMonthly int `json:"keep_monthly" yaml:"keep_monthly"`
+	KeepDays    int `toml:"keep_days"`
+	KeepCount   int `toml:"keep_count"`
+	KeepMonthly int `toml:"keep_monthly"`
 }
 
 // BackupMetadata stores information about each backup
 type BackupMetadata struct {
-	ID          string            `json:"id" yaml:"id"`
-	Timestamp   time.Time         `json:"timestamp" yaml:"timestamp"`
-	Directories []BackupDirectory `json:"directories" yaml:"directories"`
-	TotalSize   int64             `json:"total_size" yaml:"total_size"`
-	Checksum    string            `json:"checksum" yaml:"checksum"`
-	Compressed  bool              `json:"compressed" yaml:"compressed"`
+	ID          string            `toml:"id"`
+	Timestamp   time.Time         `toml:"timestamp"`
+	Directories []BackupDirectory `toml:"directories"`
+	TotalSize   int64             `toml:"total_size"`
+	Checksum    string            `toml:"checksum"`
+	Compressed  bool              `toml:"compressed"`
 }
 
 // BackupDirectory contains metadata for each backed up directory
 type BackupDirectory struct {
-	Path        string              `json:"path" yaml:"path"`
-	Name        string              `json:"name" yaml:"name"`
-	Size        int64               `json:"size" yaml:"size"`
-	FileCount   int                 `json:"file_count" yaml:"file_count"`
-	Permissions map[string]FilePerm `json:"permissions" yaml:"permissions"`
-	Checksum    string              `json:"checksum" yaml:"checksum"`
-	Compressed  bool                `json:"compressed" yaml:"compressed"`
+	Path        string              `toml:"path"`
+	Name        string              `toml:"name"`
+	Size        int64               `toml:"size"`
+	FileCount   int                 `toml:"file_count"`
+	Permissions map[string]FilePerm `toml:"permissions"`
+	Checksum    string              `toml:"checksum"`
+	Compressed  bool                `toml:"compressed"`
 }
 
 // FilePerm stores file permission information
 type FilePerm struct {
-	Mode    string `json:"mode" yaml:"mode"`
-	UID     int    `json:"uid" yaml:"uid"`
-	GID     int    `json:"gid" yaml:"gid"`
-	Size    int64  `json:"size" yaml:"size"`
-	ModTime string `json:"mod_time" yaml:"mod_time"`
+	Mode    string `toml:"mode"`
+	UID     int    `toml:"uid"`
+	GID     int    `toml:"gid"`
+	Size    int64  `toml:"size"`
+	ModTime string `toml:"mod_time"`
 }
 
 // DockerContainerInfo stores information about stopped containers
 type DockerContainerInfo struct {
-	ID      string    `json:"id" yaml:"id"`
-	Name    string    `json:"name" yaml:"name"`
-	Image   string    `json:"image" yaml:"image"`
-	Status  string    `json:"status" yaml:"status"`
-	Stopped time.Time `json:"stopped" yaml:"stopped"`
+	ID      string    `toml:"id"`
+	Name    string    `toml:"name"`
+	Image   string    `toml:"image"`
+	Status  string    `toml:"status"`
+	Stopped time.Time `toml:"stopped"`
 }
 
 // BackupState tracks the current state of backup operations
 type BackupState struct {
-	CurrentBackupID   string                `json:"current_backup_id" yaml:"current_backup_id"`
-	StoppedContainers []DockerContainerInfo `json:"stopped_containers" yaml:"stopped_containers"`
-	LastBackupTime    time.Time             `json:"last_backup_time" yaml:"last_backup_time"`
-	IsRunning         bool                  `json:"is_running" yaml:"is_running"`
+	CurrentBackupID   string                `toml:"current_backup_id"`
+	StoppedContainers []DockerContainerInfo `toml:"stopped_containers"`
+	LastBackupTime    time.Time             `toml:"last_backup_time"`
+	IsRunning         bool                  `toml:"is_running"`
 }
 
 // JobState tracks the state of individual backup jobs
 type JobState struct {
-	JobName       string    `json:"job_name" yaml:"job_name"`
-	LastRun       time.Time `json:"last_run" yaml:"last_run"`
-	LastStatus    string    `json:"last_status" yaml:"last_status"`
-	NextScheduled time.Time `json:"next_scheduled" yaml:"next_scheduled"`
-	RunCount      int       `json:"run_count" yaml:"run_count"`
+	JobName       string    `toml:"job_name"`
+	LastRun       time.Time `toml:"last_run"`
+	LastStatus    string    `toml:"last_status"`
+	NextScheduled time.Time `toml:"next_scheduled"`
+	RunCount      int       `toml:"run_count"`
 }

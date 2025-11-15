@@ -3,88 +3,99 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"text/tabwriter"
-	"time"
 
-	"github.com/mitexleo/backtide/internal/backup"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var (
-	jobsListDetailed bool
-	jobsEnableAll    bool
-	jobsDisableAll   bool
+	jobsShowAll bool
 )
 
 // jobsCmd represents the jobs command
 var jobsCmd = &cobra.Command{
 	Use:   "jobs",
 	Short: "Manage backup jobs",
-	Long: `Manage and view backup jobs configuration.
+	Long: `Manage backup jobs configuration.
 
 This command allows you to:
 - List all configured backup jobs
-- Enable or disable specific jobs
-- View job details and schedules
-- Check job status and next run times`,
-	Run: runJobs,
+- Show detailed information about jobs
+- Enable or disable jobs
+
+Examples:
+  backtide jobs list
+  backtide jobs show daily-backup
+  backtide jobs enable weekly-backup
+  backtide jobs disable test-job`,
 }
 
 // jobsListCmd represents the jobs list command
 var jobsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all backup jobs",
-	Long:  `List all configured backup jobs with their status and schedules.`,
-	Run:   runJobsList,
+	Long: `List all configured backup jobs with their status and basic information.
+
+This command shows:
+- Job name and description
+- Enabled/disabled status
+- Schedule information
+- Storage configuration
+- Number of directories`,
+	Run: runJobsList,
+}
+
+// jobsShowCmd represents the jobs show command
+var jobsShowCmd = &cobra.Command{
+	Use:   "show [job-name]",
+	Short: "Show detailed information about a backup job",
+	Long: `Show detailed information about a specific backup job.
+
+This command displays:
+- Complete job configuration
+- Directory paths and settings
+- Retention policy
+- Storage configuration
+- Schedule details`,
+	Args: cobra.ExactArgs(1),
+	Run:  runJobsShow,
 }
 
 // jobsEnableCmd represents the jobs enable command
 var jobsEnableCmd = &cobra.Command{
 	Use:   "enable [job-name]",
 	Short: "Enable a backup job",
-	Long:  `Enable a specific backup job to run according to its schedule.`,
-	Args:  cobra.ExactArgs(1),
-	Run:   runJobsEnable,
+	Long: `Enable a backup job to allow it to run during backup operations.
+
+This will set the job's enabled flag to true, allowing it to be executed
+when running 'backtide backup --all' or when specifically called.`,
+	Args: cobra.ExactArgs(1),
+	Run:  runJobsEnable,
 }
 
 // jobsDisableCmd represents the jobs disable command
 var jobsDisableCmd = &cobra.Command{
 	Use:   "disable [job-name]",
 	Short: "Disable a backup job",
-	Long:  `Disable a specific backup job to prevent it from running.`,
-	Args:  cobra.ExactArgs(1),
-	Run:   runJobsDisable,
-}
+	Long: `Disable a backup job to prevent it from running during backup operations.
 
-// jobsStatusCmd represents the jobs status command
-var jobsStatusCmd = &cobra.Command{
-	Use:   "status [job-name]",
-	Short: "Show job status and next run time",
-	Long:  `Show detailed status information for a backup job including next scheduled run.`,
-	Args:  cobra.MaximumNArgs(1),
-	Run:   runJobsStatus,
+This will set the job's enabled flag to false, preventing it from being
+executed even when running 'backtide backup --all'.`,
+	Args: cobra.ExactArgs(1),
+	Run:  runJobsDisable,
 }
 
 func init() {
 	rootCmd.AddCommand(jobsCmd)
 	jobsCmd.AddCommand(jobsListCmd)
+	jobsCmd.AddCommand(jobsShowCmd)
 	jobsCmd.AddCommand(jobsEnableCmd)
 	jobsCmd.AddCommand(jobsDisableCmd)
-	jobsCmd.AddCommand(jobsStatusCmd)
 
-	jobsListCmd.Flags().BoolVarP(&jobsListDetailed, "detailed", "d", false, "show detailed job information")
-	jobsCmd.Flags().BoolVar(&jobsEnableAll, "enable-all", false, "enable all backup jobs")
-	jobsCmd.Flags().BoolVar(&jobsDisableAll, "disable-all", false, "disable all backup jobs")
-}
-
-func runJobs(cmd *cobra.Command, args []string) {
-	// Default to list if no subcommand specified
-	runJobsList(cmd, args)
+	jobsListCmd.Flags().BoolVar(&jobsShowAll, "all", false, "show all jobs including disabled ones")
 }
 
 func runJobsList(cmd *cobra.Command, args []string) {
-	// Load configuration
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -92,103 +103,216 @@ func runJobsList(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Initialize backup runner
-	backupRunner := backup.NewBackupRunner(*cfg)
+	fmt.Println("=== Backup Jobs ===")
 
-	// Get all jobs
-	jobs := backupRunner.ListJobs()
-
-	if len(jobs) == 0 {
+	if len(cfg.Jobs) == 0 {
 		fmt.Println("No backup jobs configured.")
-		fmt.Println("Run 'backtide init' to create your first backup job.")
+		fmt.Println("Use 'backtide init' to create backup jobs.")
 		return
 	}
 
-	fmt.Printf("Found %d backup job(s):\n\n", len(jobs))
+	for i, job := range cfg.Jobs {
+		if !job.Enabled && !jobsShowAll {
+			continue
+		}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Printf("\n%d. %s\n", i+1, job.Name)
 
-	if jobsListDetailed {
-		fmt.Fprintln(w, "NAME\tENABLED\tSCHEDULE\tDESCRIPTION\tDIRECTORIES\tRETENTION")
-		fmt.Fprintln(w, "----\t-------\t--------\t-----------\t-----------\t---------")
+		status := "❌ disabled"
+		if job.Enabled {
+			status = "✅ enabled"
+		}
+		fmt.Printf("   Status: %s\n", status)
 
-		for _, job := range jobs {
-			scheduleInfo := "manual"
-			if job.Schedule.Enabled {
-				scheduleInfo = job.Schedule.Interval
-				if job.Schedule.Type != "" {
-					scheduleInfo = fmt.Sprintf("%s (%s)", scheduleInfo, job.Schedule.Type)
+		if job.Description != "" {
+			fmt.Printf("   Description: %s\n", job.Description)
+		}
+
+		// Schedule information
+		if job.Schedule.Enabled {
+			fmt.Printf("   Schedule: %s (%s)\n", job.Schedule.Type, job.Schedule.Interval)
+		} else {
+			fmt.Printf("   Schedule: manual only\n")
+		}
+
+		// Directories
+		fmt.Printf("   Directories: %d\n", len(job.Directories))
+		for _, dir := range job.Directories {
+			compression := ""
+			if dir.Compression {
+				compression = " (compressed)"
+			}
+			fmt.Printf("     - %s -> %s%s\n", dir.Path, dir.Name, compression)
+		}
+
+		// Storage configuration
+		fmt.Printf("   Storage: ")
+		if job.Storage.Local && job.Storage.S3 {
+			fmt.Printf("Local + S3\n")
+		} else if job.Storage.Local {
+			fmt.Printf("Local only\n")
+		} else if job.Storage.S3 {
+			fmt.Printf("S3 only\n")
+		} else {
+			fmt.Printf("None configured\n")
+		}
+
+		// Bucket reference
+		if job.BucketID != "" {
+			bucketName := "unknown"
+			for _, bucket := range cfg.Buckets {
+				if bucket.ID == job.BucketID {
+					bucketName = bucket.Name
+					break
 				}
 			}
-
-			enabledStatus := "❌"
-			if job.Enabled {
-				enabledStatus = "✅"
-			}
-
-			dirCount := fmt.Sprintf("%d dirs", len(job.Directories))
-			retention := fmt.Sprintf("%d days", job.Retention.KeepDays)
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				job.Name,
-				enabledStatus,
-				scheduleInfo,
-				job.Description,
-				dirCount,
-				retention,
-			)
+			fmt.Printf("   S3 Bucket: %s (%s)\n", bucketName, job.BucketID)
 		}
-	} else {
-		fmt.Fprintln(w, "NAME\tENABLED\tSCHEDULE\tDESCRIPTION")
-		fmt.Fprintln(w, "----\t-------\t--------\t-----------")
 
-		for _, job := range jobs {
-			scheduleInfo := "manual"
-			if job.Schedule.Enabled {
-				scheduleInfo = job.Schedule.Interval
-			}
+		// Retention policy
+		fmt.Printf("   Retention: %d days, %d recent, %d monthly\n",
+			job.Retention.KeepDays, job.Retention.KeepCount, job.Retention.KeepMonthly)
 
-			enabledStatus := "❌"
-			if job.Enabled {
-				enabledStatus = "✅"
-			}
+		// Docker configuration
+		if job.SkipDocker {
+			fmt.Printf("   Docker: containers will NOT be stopped\n")
+		} else {
+			fmt.Printf("   Docker: containers will be stopped during backup\n")
+		}
 
-			// Truncate description if too long
-			description := job.Description
-			if len(description) > 40 {
-				description = description[:37] + "..."
-			}
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				job.Name,
-				enabledStatus,
-				scheduleInfo,
-				description,
-			)
+		// S3 configuration
+		if job.SkipS3 {
+			fmt.Printf("   S3: operations will be skipped\n")
 		}
 	}
 
-	w.Flush()
-
-	// Show summary
 	enabledCount := 0
-	scheduledCount := 0
-	for _, job := range jobs {
+	for _, job := range cfg.Jobs {
 		if job.Enabled {
 			enabledCount++
 		}
-		if job.Schedule.Enabled {
-			scheduledCount++
+	}
+
+	fmt.Printf("\n📊 Summary: %d total jobs, %d enabled\n", len(cfg.Jobs), enabledCount)
+}
+
+func runJobsShow(cmd *cobra.Command, args []string) {
+	jobName := args[0]
+	configPath := getConfigPath()
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		fmt.Printf("Error loading configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	var job *config.BackupJob
+	for i, j := range cfg.Jobs {
+		if j.Name == jobName {
+			job = &cfg.Jobs[i]
+			break
 		}
 	}
 
-	fmt.Printf("\nSummary: %d enabled, %d scheduled, %d total jobs\n", enabledCount, scheduledCount, len(jobs))
+	if job == nil {
+		fmt.Printf("Error: Job '%s' not found\n", jobName)
+		fmt.Println("Use 'backtide jobs list' to see available jobs.")
+		os.Exit(1)
+	}
+
+	fmt.Printf("=== Job Details: %s ===\n\n", job.Name)
+
+	status := "❌ disabled"
+	if job.Enabled {
+		status = "✅ enabled"
+	}
+	fmt.Printf("Status: %s\n", status)
+	fmt.Printf("ID: %s\n", job.ID)
+
+	if job.Description != "" {
+		fmt.Printf("Description: %s\n", job.Description)
+	}
+
+	fmt.Println("\n--- Schedule ---")
+	if job.Schedule.Enabled {
+		fmt.Printf("Type: %s\n", job.Schedule.Type)
+		fmt.Printf("Interval: %s\n", job.Schedule.Interval)
+	} else {
+		fmt.Println("Manual only (no automatic scheduling)")
+	}
+
+	fmt.Println("\n--- Directories ---")
+	if len(job.Directories) == 0 {
+		fmt.Println("No directories configured")
+	} else {
+		for i, dir := range job.Directories {
+			compression := "no"
+			if dir.Compression {
+				compression = "yes"
+			}
+			fmt.Printf("%d. %s\n", i+1, dir.Name)
+			fmt.Printf("   Path: %s\n", dir.Path)
+			fmt.Printf("   Compression: %s\n", compression)
+			fmt.Println()
+		}
+	}
+
+	fmt.Println("--- Storage ---")
+	if job.Storage.Local && job.Storage.S3 {
+		fmt.Println("Type: Local + S3 (redundant storage)")
+	} else if job.Storage.Local {
+		fmt.Println("Type: Local only")
+	} else if job.Storage.S3 {
+		fmt.Println("Type: S3 only")
+	} else {
+		fmt.Println("Type: None configured")
+	}
+
+	if job.BucketID != "" {
+		bucketName := "unknown"
+		var bucketConfig *config.BucketConfig
+		for _, bucket := range cfg.Buckets {
+			if bucket.ID == job.BucketID {
+				bucketName = bucket.Name
+				bucketConfig = &bucket
+				break
+			}
+		}
+		fmt.Printf("S3 Bucket: %s (%s)\n", bucketName, job.BucketID)
+		if bucketConfig != nil {
+			fmt.Printf("  - Provider: %s\n", bucketConfig.Provider)
+			fmt.Printf("  - Bucket: %s\n", bucketConfig.Bucket)
+			fmt.Printf("  - Region: %s\n", bucketConfig.Region)
+			fmt.Printf("  - Endpoint: %s\n", func() string {
+				if bucketConfig.Endpoint == "" {
+					return "AWS default"
+				}
+				return bucketConfig.Endpoint
+			}())
+			fmt.Printf("  - Mount Point: %s\n", bucketConfig.MountPoint)
+		}
+	}
+
+	fmt.Println("\n--- Retention Policy ---")
+	fmt.Printf("Keep days: %d\n", job.Retention.KeepDays)
+	fmt.Printf("Keep count: %d\n", job.Retention.KeepCount)
+	fmt.Printf("Keep monthly: %d\n", job.Retention.KeepMonthly)
+
+	fmt.Println("\n--- Configuration ---")
+	if job.SkipDocker {
+		fmt.Println("Docker: Containers will NOT be stopped during backup")
+	} else {
+		fmt.Println("Docker: Containers will be stopped during backup")
+	}
+
+	if job.SkipS3 {
+		fmt.Println("S3: Operations will be skipped")
+	} else {
+		fmt.Println("S3: Operations will be performed")
+	}
 }
 
 func runJobsEnable(cmd *cobra.Command, args []string) {
 	jobName := args[0]
-
-	// Load configuration
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -196,34 +320,37 @@ func runJobsEnable(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Find and enable the job
-	found := false
-	for i := range cfg.Jobs {
-		if cfg.Jobs[i].Name == jobName {
-			cfg.Jobs[i].Enabled = true
-			found = true
+	var job *config.BackupJob
+	for i, j := range cfg.Jobs {
+		if j.Name == jobName {
+			job = &cfg.Jobs[i]
 			break
 		}
 	}
 
-	if !found {
+	if job == nil {
 		fmt.Printf("Error: Job '%s' not found\n", jobName)
+		fmt.Println("Use 'backtide jobs list' to see available jobs.")
 		os.Exit(1)
 	}
 
-	// Save configuration
+	if job.Enabled {
+		fmt.Printf("Job '%s' is already enabled\n", jobName)
+		return
+	}
+
+	job.Enabled = true
+
 	if err := config.SaveConfig(cfg, configPath); err != nil {
 		fmt.Printf("Error saving configuration: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Backup job '%s' enabled\n", jobName)
+	fmt.Printf("✅ Job '%s' enabled successfully\n", jobName)
 }
 
 func runJobsDisable(cmd *cobra.Command, args []string) {
 	jobName := args[0]
-
-	// Load configuration
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -231,114 +358,31 @@ func runJobsDisable(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Find and disable the job
-	found := false
-	for i := range cfg.Jobs {
-		if cfg.Jobs[i].Name == jobName {
-			cfg.Jobs[i].Enabled = false
-			found = true
+	var job *config.BackupJob
+	for i, j := range cfg.Jobs {
+		if j.Name == jobName {
+			job = &cfg.Jobs[i]
 			break
 		}
 	}
 
-	if !found {
+	if job == nil {
 		fmt.Printf("Error: Job '%s' not found\n", jobName)
+		fmt.Println("Use 'backtide jobs list' to see available jobs.")
 		os.Exit(1)
 	}
 
-	// Save configuration
+	if !job.Enabled {
+		fmt.Printf("Job '%s' is already disabled\n", jobName)
+		return
+	}
+
+	job.Enabled = false
+
 	if err := config.SaveConfig(cfg, configPath); err != nil {
 		fmt.Printf("Error saving configuration: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Backup job '%s' disabled\n", jobName)
-}
-
-func runJobsStatus(cmd *cobra.Command, args []string) {
-	// Load configuration
-	configPath := getConfigPath()
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Initialize backup runner
-	backupRunner := backup.NewBackupRunner(*cfg)
-
-	var jobs []config.BackupJob
-	if len(args) > 0 {
-		// Show status for specific job
-		jobName := args[0]
-		job, err := backupRunner.GetJob(jobName)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-		jobs = []config.BackupJob{*job}
-	} else {
-		// Show status for all jobs
-		jobs = backupRunner.ListJobs()
-	}
-
-	if len(jobs) == 0 {
-		fmt.Println("No backup jobs configured.")
-		return
-	}
-
-	for _, job := range jobs {
-		fmt.Printf("\n=== Job: %s ===\n", job.Name)
-		fmt.Printf("Description: %s\n", job.Description)
-
-		// Status
-		status := "❌ DISABLED"
-		if job.Enabled {
-			status = "✅ ENABLED"
-		}
-		fmt.Printf("Status: %s\n", status)
-
-		// Schedule
-		if job.Schedule.Enabled {
-			fmt.Printf("Schedule: %s (%s)\n", job.Schedule.Interval, job.Schedule.Type)
-
-			// Calculate next run (simplified)
-			nextRun, err := backupRunner.GetNextScheduledRun(job)
-			if err == nil && !nextRun.IsZero() {
-				fmt.Printf("Next run: %s (in %s)\n",
-					nextRun.Format("2006-01-02 15:04:05"),
-					time.Until(nextRun).Round(time.Minute),
-				)
-			}
-		} else {
-			fmt.Printf("Schedule: Manual only\n")
-		}
-
-		// Configuration
-		fmt.Printf("Directories: %d\n", len(job.Directories))
-		for _, dir := range job.Directories {
-			compression := "compressed"
-			if !dir.Compression {
-				compression = "uncompressed"
-			}
-			fmt.Printf("  - %s → %s (%s)\n", dir.Path, dir.Name, compression)
-		}
-
-		fmt.Printf("Docker: ")
-		if job.SkipDocker {
-			fmt.Printf("containers will NOT be stopped\n")
-		} else {
-			fmt.Printf("containers will be stopped during backup\n")
-		}
-
-		fmt.Printf("S3 Storage: ")
-		if job.SkipS3 {
-			fmt.Printf("disabled\n")
-		} else {
-			fmt.Printf("enabled (%s)\n", job.S3Config.Bucket)
-		}
-
-		fmt.Printf("Retention: %d days, keep %d recent, %d monthly\n",
-			job.Retention.KeepDays, job.Retention.KeepCount, job.Retention.KeepMonthly)
-	}
+	fmt.Printf("✅ Job '%s' disabled successfully\n", jobName)
 }
