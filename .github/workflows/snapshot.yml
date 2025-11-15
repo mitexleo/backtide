@@ -1,0 +1,104 @@
+name: Snapshot Build
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '**.md'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  snapshot:
+    name: Build Development Snapshot
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25.3'
+
+    - name: Get commit info
+      id: commit
+      run: |
+        echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "BRANCH=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+        echo "TIMESTAMP=$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+
+    - name: Determine version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="snapshot-${{ steps.commit.outputs.TIMESTAMP }}"
+        else
+          VERSION="snapshot-${{ steps.commit.outputs.BRANCH }}-${{ steps.commit.outputs.SHORT_SHA }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using version: $VERSION"
+
+    - name: Build binary
+      run: |
+        go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide
+
+    - name: Test binary
+      run: |
+        ./backtide version
+        ./backtide --help
+
+    - name: Build cross-platform binaries
+      run: |
+        GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-linux-amd64
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-darwin-amd64
+        GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-windows-amd64.exe
+
+    - name: Upload snapshot artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: backtide-snapshot-${{ steps.version.outputs.VERSION }}
+        path: |
+          backtide
+          backtide-linux-amd64
+          backtide-darwin-amd64
+          backtide-windows-amd64.exe
+        retention-days: 30
+
+    - name: Create snapshot release
+      if: github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: snapshot-${{ steps.commit.outputs.TIMESTAMP }}
+        name: Development Snapshot ${{ steps.version.outputs.VERSION }}
+        body: |
+          Development snapshot build of Backtide
+
+          **Build Information:**
+          - Branch: ${{ steps.commit.outputs.BRANCH }}
+          - Commit: ${{ steps.commit.outputs.SHORT_SHA }}
+          - Timestamp: ${{ steps.commit.outputs.TIMESTAMP }}
+          - Version: ${{ steps.version.outputs.VERSION }}
+
+          **Download:**
+          - `backtide` - Linux binary
+          - `backtide-linux-amd64` - Linux binary (cross-compiled)
+          - `backtide-darwin-amd64` - macOS binary
+          - `backtide-windows-amd64.exe` - Windows binary
+
+          **Note:** This is a development snapshot and may contain unstable features.
+        draft: true
+        prerelease: true
+        files: |
+          backtide
+          backtide-linux-amd64
+          backtide-darwin-amd64
+          backtide-windows-amd64.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -852,6 +852,78 @@ docker info
 systemctl status docker
 ```
 
+## Build and Release
+
+Backtide uses automated GitHub Actions workflows for building and releasing.
+
+### Automated Builds
+
+- **CI Workflow**: Runs on every push to `main` and pull requests
+- **Release Workflow**: Creates releases when version tags are pushed
+- **Manual Releases**: Can be triggered from GitHub UI with custom version
+
+### Building Locally
+
+```bash
+# Build development version
+make build
+
+# Build release version with specific version
+make release VERSION=1.2.3
+
+# Cross-compile for all platforms
+make build-all
+
+# Run tests
+make test
+
+# Install to system
+make install
+```
+
+### Version Management
+
+```bash
+# Show current version
+./scripts/version.sh current
+
+# Calculate next version
+./scripts/version.sh next patch
+
+# Create git tag for release
+./scripts/version.sh tag 1.2.3
+
+# Build release binary
+./scripts/version.sh release 1.2.3
+```
+
+### Release Process
+
+1. **Create Release Tag**:
+   ```bash
+   git tag -a v1.2.3 -m "Release v1.2.3"
+   git push origin v1.2.3
+   ```
+
+2. **GitHub Actions** automatically:
+   - Builds the binary with the correct version
+   - Runs tests
+   - Creates a GitHub release
+   - Uploads the binary
+
+3. **Manual Release** (optional):
+   - Go to GitHub Actions → Release workflow
+   - Click "Run workflow"
+   - Enter version number (e.g., 1.2.3)
+
+### Version Command
+
+The built binary includes version information:
+```bash
+backtide version
+# Output: Backtide version 1.2.3
+```
+
 ## Development
 
 ### Project Structure
