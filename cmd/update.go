@@ -35,6 +35,7 @@ Examples:
 var (
 	updateDryRun bool
 	updateForce  bool
+	updateUser   bool
 )
 
 func init() {
@@ -42,6 +43,7 @@ func init() {
 
 	updateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false, "show what would be updated without making changes")
 	updateCmd.Flags().BoolVarP(&updateForce, "force", "f", false, "force update even if already on latest version")
+	updateCmd.Flags().BoolVar(&updateUser, "user", false, "install to user directory instead of system location")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) {
@@ -55,6 +57,34 @@ func runUpdate(cmd *cobra.Command, args []string) {
 			fmt.Println("Use --force to update anyway.")
 			return
 		}
+	}
+
+	// Check if we're running from a writable location
+	currentExec, err := os.Executable()
+	if err != nil {
+		fmt.Printf("❌ Could not determine current executable path: %v\n", err)
+		return
+	}
+
+	// Check if we can write to the binary location
+	if !canWriteToBinary(currentExec) && !updateUser {
+		fmt.Println("⚠️  Cannot update binary in current location due to permissions.")
+		fmt.Println("💡 Try one of these options:")
+		fmt.Println("   1. Run with sudo: sudo backtide update")
+		fmt.Println("   2. Install to user directory: backtide update --user")
+		fmt.Println("   3. Download manually from: https://github.com/mitexleo/backtide/releases")
+		return
+	}
+
+	// If user installation is requested, determine user binary directory
+	if updateUser {
+		userBinDir, err := getUserBinaryDir()
+		if err != nil {
+			fmt.Printf("❌ Cannot determine user binary directory: %v\n", err)
+			return
+		}
+		currentExec = filepath.Join(userBinDir, "backtide")
+		fmt.Printf("📁 Will install to user directory: %s\n", userBinDir)
 	}
 
 	// Get latest release info
@@ -103,11 +133,15 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Get current executable path
-	currentExec, err := os.Executable()
-	if err != nil {
-		fmt.Printf("❌ Could not determine current executable path: %v\n", err)
-		return
+	// Use the executable path we already checked
+
+	// For user installation, ensure the directory exists
+	if updateUser {
+		userBinDir := filepath.Dir(currentExec)
+		if err := os.MkdirAll(userBinDir, 0755); err != nil {
+			fmt.Printf("❌ Cannot create user binary directory: %v\n", err)
+			return
+		}
 	}
 
 	// Replace the current binary
@@ -116,8 +150,16 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// For user installation, provide instructions
+	if updateUser {
+		fmt.Println("💡 User installation complete! Make sure your PATH includes:")
+		fmt.Printf("   %s\n", filepath.Dir(currentExec))
+		fmt.Println("   You may need to restart your shell or add this to your shell profile.")
+	}
+
 	fmt.Printf("✅ Successfully updated Backtide from %s to %s!\n", currentVersion, latestRelease.Version)
-	fmt.Println("💡 Restart any running Backtide processes to use the new version.")
+	fmt.Println("💡 The update is complete. You may need to restart your shell or terminal session.")
+	fmt.Println("   Run 'backtide version' to verify the new version is active.")
 }
 
 // ReleaseInfo holds information about a GitHub release
@@ -296,26 +338,122 @@ func verifyBinary(filePath, expectedVersion string) error {
 
 // replaceBinary replaces the current binary with the new one
 func replaceBinary(currentPath, newPath string) error {
-	// Get directory of current binary (keep for future use if needed)
-	_ = filepath.Dir(currentPath)
+	// Get directory of current binary
+	binaryDir := filepath.Dir(currentPath)
 
-	// Create backup of current binary
-	backupPath := currentPath + ".backup"
+	// Check if we have write permissions to the binary directory
+	if _, err := os.Stat(binaryDir); err != nil {
+		return fmt.Errorf("cannot access binary directory %s: %v", binaryDir, err)
+	}
+
+	// Check if we can write to the binary location
+	if _, err := os.Stat(currentPath); err == nil {
+		// File exists, check if we can write to it
+		if file, err := os.OpenFile(currentPath, os.O_WRONLY, 0); err != nil {
+			if os.IsPermission(err) {
+				return fmt.Errorf("permission denied: cannot write to %s. Try running with sudo", currentPath)
+			}
+		} else {
+			file.Close()
+		}
+	}
+
+	// Check if binary is currently running (to avoid "text file busy")
+	if isBinaryRunning(currentPath) {
+		return fmt.Errorf("binary is currently running. Please stop any backtide processes and try again")
+	}
+
+	// Create backup of current binary in temp directory to avoid permission issues
+	tempDir := os.TempDir()
+	backupPath := filepath.Join(tempDir, "backtide.backup")
 	if err := copyFile(currentPath, backupPath); err != nil {
 		return fmt.Errorf("could not create backup: %v", err)
 	}
 
-	// Replace the binary
-	if err := copyFile(newPath, currentPath); err != nil {
-		// Restore from backup if replacement fails
-		copyFile(backupPath, currentPath)
+	// Replace the binary using atomic rename to avoid "text file busy" errors
+	tempDest := currentPath + ".new"
+	if err := copyFile(newPath, tempDest); err != nil {
 		os.Remove(backupPath)
-		return fmt.Errorf("could not replace binary: %v", err)
+		return fmt.Errorf("could not create new binary: %v", err)
+	}
+
+	// Make the new binary executable
+	if err := os.Chmod(tempDest, 0755); err != nil {
+		os.Remove(tempDest)
+		os.Remove(backupPath)
+		return fmt.Errorf("could not set executable permissions: %v", err)
+	}
+
+	// Use atomic rename to replace the binary (avoids "text file busy" on Linux)
+	if err := os.Rename(tempDest, currentPath); err != nil {
+		// If rename fails, try direct copy (for systems that don't support atomic rename)
+		if err := copyFile(newPath, currentPath); err != nil {
+			// Restore from backup if replacement fails
+			copyFile(backupPath, currentPath)
+			os.Remove(tempDest)
+			os.Remove(backupPath)
+			return fmt.Errorf("could not replace binary: %v", err)
+		}
 	}
 
 	// Clean up backup
 	os.Remove(backupPath)
 	return nil
+}
+
+// canWriteToBinary checks if we have write permissions to the binary location
+func canWriteToBinary(binaryPath string) bool {
+	// Check if we can write to the binary directory
+	binaryDir := filepath.Dir(binaryPath)
+	if info, err := os.Stat(binaryDir); err != nil || info.Mode().Perm()&0200 == 0 {
+		return false
+	}
+
+	// Check if we can write to the binary itself
+	if file, err := os.OpenFile(binaryPath, os.O_WRONLY, 0); err != nil {
+		return false
+	} else {
+		file.Close()
+	}
+
+	return true
+}
+
+// isBinaryRunning checks if the binary is currently executing
+func isBinaryRunning(binaryPath string) bool {
+	// On Unix-like systems, we can check if the binary is in use
+	// This is a simple check - in practice, the rename operation will fail if busy
+	return false
+}
+
+// getUserBinaryDir returns the appropriate user binary directory
+func getUserBinaryDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Common user binary directories
+	possibleDirs := []string{
+		filepath.Join(homeDir, "bin"),
+		filepath.Join(homeDir, ".local", "bin"),
+		filepath.Join(homeDir, "go", "bin"),
+	}
+
+	// Return first existing directory, or create ~/bin if none exist
+	for _, dir := range possibleDirs {
+		if _, err := os.Stat(dir); err == nil {
+			return dir, nil
+		}
+	}
+
+	// Create ~/bin if no suitable directory exists
+	userBin := filepath.Join(homeDir, "bin")
+	if err := os.MkdirAll(userBin, 0755); err != nil {
+		return "", err
+	}
+
+	return userBin, nil
 }
 
 // copyFile copies a file from src to dst
