@@ -549,7 +549,7 @@ func createExampleConfig() *config.BackupConfig {
 	// cfg.S3Config.SecretKey = "YOUR_APPLICATION_KEY"
 	// cfg.S3Config.MountPoint = "/mnt/s3backup"
 	// cfg.S3Config.Endpoint = "https://s3.us-west-002.backblazeb2.com"  // Your B2 endpoint
-	// cfg.S3Config.UsePathStyle = true  // REQUIRED for B2
+	// cfg.S3Config.UsePathStyle = true  // Recommended for B2
 
 	// Wasabi
 	// cfg.S3Config.Bucket = "my-backup-bucket"

@@ -354,54 +354,52 @@ func configureBucketForAdd() config.BucketConfig {
 
 	var providerName string
 	var defaultEndpoint string
-	var defaultPathStyle bool
+	var recommendedPathStyle bool
 
 	switch choice {
 	case "1":
 		providerName = "AWS S3"
-		defaultPathStyle = false
+		recommendedPathStyle = false
 		fmt.Print("AWS Region (e.g., us-east-1): ")
 		region, _ := reader.ReadString('\n')
 		bucket.Region = strings.TrimSpace(region)
+
 	case "2":
 		providerName = "Backblaze B2"
 		defaultEndpoint = "https://s3.us-west-002.backblazeb2.com"
-		defaultPathStyle = true
+		recommendedPathStyle = true
 		bucket.Region = ""
+
 	case "3":
 		providerName = "Wasabi"
 		defaultEndpoint = "https://s3.wasabisys.com"
-		defaultPathStyle = false
+		recommendedPathStyle = false
 		fmt.Print("Wasabi Region (e.g., us-east-1): ")
 		region, _ := reader.ReadString('\n')
 		bucket.Region = strings.TrimSpace(region)
 	case "4":
 		providerName = "DigitalOcean Spaces"
 		defaultEndpoint = "https://nyc3.digitaloceanspaces.com"
-		defaultPathStyle = false
+		recommendedPathStyle = false
 		fmt.Print("DO Region (e.g., nyc3): ")
 		region, _ := reader.ReadString('\n')
 		bucket.Region = strings.TrimSpace(region)
 	case "5":
 		providerName = "MinIO"
 		defaultEndpoint = "http://localhost:9000"
-		defaultPathStyle = true
+		recommendedPathStyle = true
 		bucket.Region = ""
+
 	case "6":
 		providerName = "Other S3-compatible"
-		defaultPathStyle = false
+		recommendedPathStyle = false
 		fmt.Print("Endpoint URL (e.g., https://s3.example.com): ")
 		endpoint, _ := reader.ReadString('\n')
 		defaultEndpoint = strings.TrimSpace(endpoint)
-		fmt.Print("Use path-style endpoints? (y/N): ")
-		pathStyle, _ := reader.ReadString('\n')
-		if strings.ToLower(strings.TrimSpace(pathStyle)) == "y" {
-			defaultPathStyle = true
-		}
 	default:
 		fmt.Println("Invalid choice, using AWS S3 defaults")
 		providerName = "AWS S3"
-		defaultPathStyle = false
+		recommendedPathStyle = false
 	}
 
 	bucket.Provider = providerName
@@ -429,9 +427,12 @@ func configureBucketForAdd() config.BucketConfig {
 	}
 
 	// Path style
-	bucket.UsePathStyle = defaultPathStyle
-	if defaultPathStyle {
-		fmt.Println("Using path-style endpoints (required for this provider)")
+	fmt.Printf("Use path-style endpoints? (recommended: %v) (y/N): ", recommendedPathStyle)
+	pathStyle, _ := reader.ReadString('\n')
+	if strings.ToLower(strings.TrimSpace(pathStyle)) == "y" {
+		bucket.UsePathStyle = true
+	} else {
+		bucket.UsePathStyle = false
 	}
 
 	// Access key
