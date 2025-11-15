@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -126,6 +127,15 @@ type ReleaseInfo struct {
 	ReleaseNotes string
 }
 
+// GitHubRelease represents the GitHub API release response
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
 // getLatestRelease fetches the latest release information from GitHub
 func getLatestRelease() (*ReleaseInfo, error) {
 	// GitHub API URL for latest release
@@ -144,6 +154,10 @@ func getLatestRelease() (*ReleaseInfo, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("no releases available")
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status: %s", resp.Status)
 	}
@@ -153,8 +167,7 @@ func getLatestRelease() (*ReleaseInfo, error) {
 		return nil, err
 	}
 
-	// Parse the JSON response manually (simplified)
-	// In a real implementation, you'd use json.Unmarshal with proper structs
+	// Parse the JSON response using proper JSON parsing
 	version, downloadURL, err := parseReleaseJSON(body)
 	if err != nil {
 		return nil, err
@@ -168,46 +181,43 @@ func getLatestRelease() (*ReleaseInfo, error) {
 
 // parseReleaseJSON extracts version and download URL from GitHub API response
 func parseReleaseJSON(data []byte) (string, string, error) {
-	// Simplified parsing - in production you'd use proper JSON parsing
-	jsonStr := string(data)
+	var release GitHubRelease
+	if err := json.Unmarshal(data, &release); err != nil {
+		return "", "", fmt.Errorf("failed to parse GitHub API response: %v", err)
+	}
 
-	// Extract version from tag_name
-	tagPrefix := `"tag_name":"`
-	tagStart := strings.Index(jsonStr, tagPrefix)
-	if tagStart == -1 {
-		// Check if there are no releases
-		if strings.Contains(jsonStr, `"message":"Not Found"`) {
-			return "", "", fmt.Errorf("no releases available")
-		}
-		return "", "", fmt.Errorf("could not find version in response")
+	if release.TagName == "" {
+		return "", "", fmt.Errorf("no releases available")
 	}
-	tagStart += len(tagPrefix)
-	tagEnd := strings.Index(jsonStr[tagStart:], `"`)
-	if tagEnd == -1 {
-		return "", "", fmt.Errorf("could not parse version")
-	}
-	version := jsonStr[tagStart : tagStart+tagEnd]
-	version = strings.TrimPrefix(version, "v") // Remove 'v' prefix
+
+	// Remove 'v' prefix from version
+	version := strings.TrimPrefix(release.TagName, "v")
 
 	// Determine correct binary name for current platform
 	binaryName := getBinaryNameForPlatform()
 
 	// Find download URL for the correct binary
-	urlPrefix := `"browser_download_url":"`
-	urlStart := strings.Index(jsonStr, urlPrefix+binaryName)
-	if urlStart == -1 {
-		// Fallback to main binary
-		urlStart = strings.Index(jsonStr, urlPrefix+"backtide")
-		if urlStart == -1 {
-			return "", "", fmt.Errorf("no releases available")
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == binaryName {
+			downloadURL = asset.BrowserDownloadURL
+			break
 		}
 	}
-	urlStart += len(urlPrefix)
-	urlEnd := strings.Index(jsonStr[urlStart:], `"`)
-	if urlEnd == -1 {
-		return "", "", fmt.Errorf("could not parse download URL")
+
+	// Fallback to main binary if platform-specific not found
+	if downloadURL == "" {
+		for _, asset := range release.Assets {
+			if asset.Name == "backtide" {
+				downloadURL = asset.BrowserDownloadURL
+				break
+			}
+		}
 	}
-	downloadURL := jsonStr[urlStart : urlStart+urlEnd]
+
+	if downloadURL == "" {
+		return "", "", fmt.Errorf("no releases available")
+	}
 
 	return version, downloadURL, nil
 }
