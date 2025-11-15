@@ -16,21 +16,27 @@ import (
 var (
 	backupSkipDocker bool
 	backupSkipS3     bool
+	backupJobName    string
+	backupAllJobs    bool
 )
 
 // backupCmd represents the backup command
 var backupCmd = &cobra.Command{
-	Use:   "backup",
-	Short: "Create a backup of specified directories",
-	Long: `Create a comprehensive backup of configured directories.
+	Use:   "backup [job-name]",
+	Short: "Create a backup using configured backup jobs",
+	Long: `Create backups using configured backup jobs.
 
-This command will:
+If no job name is specified, runs the default backup job.
+Use --all to run all enabled backup jobs.
+
+Each backup job will:
 1. Stop all running Docker containers (optional)
 2. Mount S3 bucket using s3fs (optional)
 3. Create compressed backups of specified directories
 4. Restart Docker containers (if stopped)
 5. Clean up old backups according to retention policy`,
-	Run: runBackup,
+	Args: cobra.MaximumNArgs(1),
+	Run:  runBackup,
 }
 
 func init() {
@@ -38,10 +44,20 @@ func init() {
 
 	backupCmd.Flags().BoolVar(&backupSkipDocker, "skip-docker", false, "skip Docker container management")
 	backupCmd.Flags().BoolVar(&backupSkipS3, "skip-s3", false, "skip S3 operations")
+	backupCmd.Flags().StringVarP(&backupJobName, "job", "j", "", "specific backup job to run")
+	backupCmd.Flags().BoolVarP(&backupAllJobs, "all", "a", false, "run all enabled backup jobs")
 }
 
 func runBackup(cmd *cobra.Command, args []string) {
 	fmt.Println("Starting backup operation...")
+
+	// Determine which job to run
+	var jobName string
+	if len(args) > 0 {
+		jobName = args[0]
+	} else if backupJobName != "" {
+		jobName = backupJobName
+	}
 
 	// Load configuration
 	configPath := getConfigPath()
@@ -51,6 +67,9 @@ func runBackup(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Initialize backup runner
+	backupRunner := backup.NewBackupRunner(*cfg)
+
 	// Check if running as root for certain operations
 	if !backupSkipS3 {
 		if err := utils.CheckRootPrivileges(); err != nil {
@@ -59,7 +78,82 @@ func runBackup(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Initialize managers
+	// Determine backup mode
+	if backupAllJobs {
+		// Run all enabled jobs
+		fmt.Println("Running all enabled backup jobs...")
+		if dryRun {
+			fmt.Println("DRY RUN: Would run all enabled backup jobs")
+			enabledJobs := backupRunner.GetEnabledJobs()
+			for _, job := range enabledJobs {
+				fmt.Printf("  - %s: %s\n", job.Name, job.Description)
+			}
+		} else {
+			metadata, err := backupRunner.RunAllJobs()
+			if err != nil {
+				fmt.Printf("Error running backup jobs: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Successfully completed %d backup jobs\n", len(metadata))
+		}
+	} else if jobName != "" {
+		// Run specific job
+		fmt.Printf("Running backup job: %s\n", jobName)
+		if dryRun {
+			fmt.Printf("DRY RUN: Would run backup job '%s'\n", jobName)
+		} else {
+			_, err := backupRunner.RunJob(jobName)
+			if err != nil {
+				fmt.Printf("Error running backup job: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	} else {
+		// Run default/legacy backup
+		runLegacyBackup(cfg, backupRunner)
+	}
+}
+
+func runLegacyBackup(cfg *config.BackupConfig, backupRunner *backup.BackupRunner) {
+	// Check if using legacy config
+	if len(cfg.Jobs) == 0 && len(cfg.Directories) > 0 {
+		fmt.Println("Using legacy configuration format...")
+		// Fall back to original backup logic
+		runLegacyBackupLogic(cfg)
+		return
+	}
+
+	// Find default job
+	var defaultJob *config.BackupJob
+	jobs := backupRunner.ListJobs()
+	for i, job := range jobs {
+		if job.Name == "default-backup" || i == 0 {
+			defaultJob = &jobs[i]
+			break
+		}
+	}
+
+	if defaultJob == nil {
+		fmt.Println("Error: No backup jobs configured and no default job found")
+		fmt.Println("Run 'backtide init' to configure backup jobs")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Running default backup job: %s\n", defaultJob.Name)
+	if dryRun {
+		fmt.Printf("DRY RUN: Would run backup job '%s'\n", defaultJob.Name)
+	} else {
+		_, err := backupRunner.RunJob(defaultJob.Name)
+		if err != nil {
+			fmt.Printf("Error running backup job: %v\n", err)
+			os.Exit(1)
+		}
+	}
+}
+
+func runLegacyBackupLogic(cfg *config.BackupConfig) {
+
+	// Initialize managers for legacy backup
 	dockerManager := docker.NewDockerManager("/var/lib/backtide/containers.json")
 	s3Manager := s3fs.NewS3FSManager(cfg.S3Config)
 	backupManager := backup.NewBackupManager(*cfg)

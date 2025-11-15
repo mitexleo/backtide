@@ -104,20 +104,19 @@ func (sm *S3FSManager) MountS3FS() error {
 		sm.config.Bucket,
 		sm.config.MountPoint,
 		"-o", "passwd_file=/etc/passwd-s3fs",
-		"-o", "use_path_request_style",
-		"-o", "url=https://s3.amazonaws.com",
 		"-o", "allow_other",
 		"-o", "umask=000",
 	}
 
-	// Add region if specified
-	if sm.config.Region != "" {
-		args = append(args, "-o", fmt.Sprintf("endpoint=%s", sm.config.Region))
-	}
-
-	// Add custom endpoint if specified
+	// Use custom endpoint if specified, otherwise use region-based endpoint
 	if sm.config.Endpoint != "" {
 		args = append(args, "-o", fmt.Sprintf("url=%s", sm.config.Endpoint))
+	} else if sm.config.Region != "" {
+		// Use region-specific endpoint for AWS
+		args = append(args, "-o", fmt.Sprintf("url=https://s3.%s.amazonaws.com", sm.config.Region))
+	} else {
+		// Default to global AWS endpoint
+		args = append(args, "-o", "url=https://s3.amazonaws.com")
 	}
 
 	// Add path style if specified
@@ -153,10 +152,32 @@ func (sm *S3FSManager) UnmountS3FS() error {
 
 // AddToFstab adds S3FS mount to /etc/fstab for persistence
 func (sm *S3FSManager) AddToFstab() error {
+	// Build fstab options
+	options := []string{
+		"_netdev",
+		"allow_other",
+		"passwd_file=/etc/passwd-s3fs",
+	}
+
+	// Add endpoint URL
+	if sm.config.Endpoint != "" {
+		options = append(options, fmt.Sprintf("url=%s", sm.config.Endpoint))
+	} else if sm.config.Region != "" {
+		options = append(options, fmt.Sprintf("url=https://s3.%s.amazonaws.com", sm.config.Region))
+	} else {
+		options = append(options, "url=https://s3.amazonaws.com")
+	}
+
+	// Add path style if specified
+	if sm.config.UsePathStyle {
+		options = append(options, "use_path_request_style")
+	}
+
 	fstabEntry := fmt.Sprintf(
-		"s3fs#%s %s fuse _netdev,allow_other,use_path_request_style,passwd_file=/etc/passwd-s3fs,url=https://s3.amazonaws.com 0 0",
+		"s3fs#%s %s fuse %s 0 0",
 		sm.config.Bucket,
 		sm.config.MountPoint,
+		strings.Join(options, ","),
 	)
 
 	// Read current fstab

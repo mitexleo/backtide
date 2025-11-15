@@ -6,11 +6,32 @@ import (
 
 // BackupConfig represents the configuration for backup operations
 type BackupConfig struct {
-	Directories     []DirectoryConfig `json:"directories" yaml:"directories"`
-	S3Config        S3Config          `json:"s3" yaml:"s3"`
-	RetentionPolicy RetentionPolicy   `json:"retention" yaml:"retention"`
+	Jobs            []BackupJob       `json:"jobs" yaml:"jobs"`
+	Directories     []DirectoryConfig `json:"directories" yaml:"directories"` // Legacy support
+	S3Config        S3Config          `json:"s3" yaml:"s3"`                   // Legacy support
+	RetentionPolicy RetentionPolicy   `json:"retention" yaml:"retention"`     // Legacy support
 	BackupPath      string            `json:"backup_path" yaml:"backup_path"`
 	TempPath        string            `json:"temp_path" yaml:"temp_path"`
+}
+
+// BackupJob represents a complete backup configuration with scheduling
+type BackupJob struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Enabled     bool              `json:"enabled" yaml:"enabled"`
+	Schedule    ScheduleConfig    `json:"schedule" yaml:"schedule"`
+	Directories []DirectoryConfig `json:"directories" yaml:"directories"`
+	S3Config    S3Config          `json:"s3" yaml:"s3"`
+	Retention   RetentionPolicy   `json:"retention" yaml:"retention"`
+	SkipDocker  bool              `json:"skip_docker" yaml:"skip_docker"`
+	SkipS3      bool              `json:"skip_s3" yaml:"skip_s3"`
+}
+
+// ScheduleConfig represents backup scheduling configuration
+type ScheduleConfig struct {
+	Type     string `json:"type" yaml:"type"`         // "systemd", "cron", "manual"
+	Interval string `json:"interval" yaml:"interval"` // cron expression or systemd calendar
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
 }
 
 // DirectoryConfig represents configuration for a single directory to backup
@@ -83,4 +104,13 @@ type BackupState struct {
 	StoppedContainers []DockerContainerInfo `json:"stopped_containers" yaml:"stopped_containers"`
 	LastBackupTime    time.Time             `json:"last_backup_time" yaml:"last_backup_time"`
 	IsRunning         bool                  `json:"is_running" yaml:"is_running"`
+}
+
+// JobState tracks the state of individual backup jobs
+type JobState struct {
+	JobName       string    `json:"job_name" yaml:"job_name"`
+	LastRun       time.Time `json:"last_run" yaml:"last_run"`
+	LastStatus    string    `json:"last_status" yaml:"last_status"`
+	NextScheduled time.Time `json:"next_scheduled" yaml:"next_scheduled"`
+	RunCount      int       `json:"run_count" yaml:"run_count"`
 }
