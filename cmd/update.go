@@ -66,14 +66,20 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Check if we can write to the binary location
-	if !canWriteToBinary(currentExec) && !updateUser {
-		fmt.Println("⚠️  Cannot update binary in current location due to permissions.")
-		fmt.Println("💡 Try one of these options:")
-		fmt.Println("   1. Run with sudo: sudo backtide update")
-		fmt.Println("   2. Install to user directory: backtide update --user")
-		fmt.Println("   3. Download manually from: https://github.com/mitexleo/backtide/releases")
-		return
+	// Check if we can write to the binary location (skip check if using sudo)
+	if !updateUser {
+		// When running with sudo, we should have write permissions, so skip the check
+		// Only perform the check when not running as root
+		if os.Geteuid() != 0 {
+			if !canWriteToBinary(currentExec) {
+				fmt.Println("⚠️  Cannot update binary in current location due to permissions.")
+				fmt.Println("💡 Try one of these options:")
+				fmt.Println("   1. Run with sudo: sudo backtide update")
+				fmt.Println("   2. Install to user directory: backtide update --user")
+				fmt.Println("   3. Download manually from: https://github.com/mitexleo/backtide/releases")
+				return
+			}
+		}
 	}
 
 	// If user installation is requested, determine user binary directory
@@ -146,7 +152,16 @@ func runUpdate(cmd *cobra.Command, args []string) {
 
 	// Replace the current binary
 	if err := replaceBinary(currentExec, tempFile); err != nil {
-		fmt.Printf("❌ Update failed: %v\n", err)
+		// Check for specific error types to provide better user guidance
+		if strings.Contains(err.Error(), "text file busy") {
+			fmt.Printf("❌ Update failed: %v\n", err)
+			fmt.Println("💡 The binary is currently running. Please:")
+			fmt.Println("   - Stop any running backtide processes")
+			fmt.Println("   - Close any terminals using backtide")
+			fmt.Println("   - Try the update again")
+		} else {
+			fmt.Printf("❌ Update failed: %v\n", err)
+		}
 		return
 	}
 
@@ -388,6 +403,13 @@ func replaceBinary(currentPath, newPath string) error {
 	if err := os.Rename(tempDest, currentPath); err != nil {
 		// If rename fails, try direct copy (for systems that don't support atomic rename)
 		if err := copyFile(newPath, currentPath); err != nil {
+			// Check if error is due to binary being busy
+			if strings.Contains(err.Error(), "text file busy") {
+				// Clean up temporary files
+				os.Remove(tempDest)
+				os.Remove(backupPath)
+				return fmt.Errorf("could not replace binary: %v (binary is currently running)", err)
+			}
 			// Restore from backup if replacement fails
 			copyFile(backupPath, currentPath)
 			os.Remove(tempDest)
@@ -403,15 +425,30 @@ func replaceBinary(currentPath, newPath string) error {
 
 // canWriteToBinary checks if we have write permissions to the binary location
 func canWriteToBinary(binaryPath string) bool {
-	// Check if we can write to the binary directory
+	// Try to create a test file in the binary directory to check write permissions
 	binaryDir := filepath.Dir(binaryPath)
-	if info, err := os.Stat(binaryDir); err != nil || info.Mode().Perm()&0200 == 0 {
-		return false
-	}
 
-	// Check if we can write to the binary itself
+	// Test if we can write to the directory by creating a temporary file
+	testFile, err := os.CreateTemp(binaryDir, "backtide-write-test-*")
+	if err != nil {
+		// Check if error is due to permissions or file busy
+		if os.IsPermission(err) {
+			return false
+		}
+		// Other errors (like file busy) are not permission issues
+		return true
+	}
+	testFile.Close()
+	os.Remove(testFile.Name())
+
+	// Test if we can write to the binary file itself by trying to open it for writing
 	if file, err := os.OpenFile(binaryPath, os.O_WRONLY, 0); err != nil {
-		return false
+		// Check if error is due to permissions
+		if os.IsPermission(err) {
+			return false
+		}
+		// Other errors (like file busy) are not permission issues
+		return true
 	} else {
 		file.Close()
 	}
