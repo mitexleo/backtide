@@ -1,17 +1,22 @@
-name: Semantic Release
+name: Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 1.2.3)"
+        required: true
+        type: string
 
 jobs:
   release:
-    name: Semantic Versioning Release
+    name: Build and Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
 
     steps:
       - name: Checkout code
@@ -24,72 +29,50 @@ jobs:
         with:
           go-version: "1.25.3"
 
-      - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v3
-        id: semantic
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          extra_plugins: |
-            @semantic-release/changelog
-            @semantic-release/git
-
-      - name: Build binary
-        if: steps.semantic.outputs.new_release_published == 'true'
+      - name: Determine version
+        id: version
         run: |
-          VERSION=${{ steps.semantic.outputs.new_version }}
-          go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+          echo "Using version: ${{ steps.version.outputs.VERSION }}"
+
+      - name: Build all binaries
+        run: |
+          # Build main binary
+          go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide
+          # Build cross-platform binaries
+          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-linux-amd64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-darwin-amd64
+          GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=${{ steps.version.outputs.VERSION }}" -o backtide-windows-amd64.exe
 
       - name: Test binary
-        if: steps.semantic.outputs.new_release_published == 'true'
         run: |
           ./backtide version
           ./backtide --help
 
-      - name: Upload release asset
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/upload-release-asset@v1
-
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ steps.semantic.outputs.upload_url }}
-          asset_path: ./backtide
-          asset_name: backtide
-          asset_content_type: application/octet-stream
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: Backtide v${{ steps.version.outputs.VERSION }}
+          body: |
+            Automated release of Backtide backup utility
 
-      - name: Build cross-platform binaries
-        if: steps.semantic.outputs.new_release_published == 'true'
-        run: |
-          VERSION=${{ steps.semantic.outputs.new_version }}
-          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-linux-amd64
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-darwin-amd64
-          GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$VERSION" -o backtide-windows-amd64.exe
+            **Version**: v${{ steps.version.outputs.VERSION }}
+            **Features**:
+            - Docker container backup with permission preservation
+            - S3-compatible storage integration
+            - Job-based backup system
+            - Cross-platform S3 support (AWS, Backblaze B2, Wasabi, etc.)
 
-      - name: Upload cross-platform assets
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/upload-release-asset@v1
-
-        with:
-          upload_url: ${{ steps.semantic.outputs.upload_url }}
-          asset_path: ./backtide-linux-amd64
-          asset_name: backtide-linux-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload macOS asset
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/upload-release-asset@v1
-
-        with:
-          upload_url: ${{ steps.semantic.outputs.upload_url }}
-          asset_path: ./backtide-darwin-amd64
-          asset_name: backtide-darwin-amd64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Windows asset
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/upload-release-asset@v1
-
-        with:
-          upload_url: ${{ steps.semantic.outputs.upload_url }}
-          asset_path: ./backtide-windows-amd64.exe
-          asset_name: backtide-windows-amd64.exe
-          asset_content_type: application/octet-stream
+            Built automatically by GitHub Actions.
+          draft: false
+          prerelease: false
+          files: |
+            backtide
+            backtide-linux-amd64
+            backtide-darwin-amd64
+            backtide-windows-amd64.exe
