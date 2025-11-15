@@ -76,14 +76,21 @@ func (sm *S3FSManager) SetupS3FS() error {
 		return fmt.Errorf("failed to create mount point directory: %w", err)
 	}
 
-	// Create credentials file
-	credsDir := filepath.Dir("/etc/passwd-s3fs")
-	if err := os.MkdirAll(credsDir, 0755); err != nil {
+	// Create credentials file in user-specific location, per bucket
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	credsDir := filepath.Join(homeDir, ".config", "backtide", "s3-credentials")
+	if err := os.MkdirAll(credsDir, 0700); err != nil {
 		return fmt.Errorf("failed to create credentials directory: %w", err)
 	}
 
+	// Create unique credential file per bucket using bucket ID
+	credsFile := filepath.Join(credsDir, fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
 	credsContent := fmt.Sprintf("%s:%s", sm.config.AccessKey, sm.config.SecretKey)
-	if err := os.WriteFile("/etc/passwd-s3fs", []byte(credsContent), 0600); err != nil {
+	if err := os.WriteFile(credsFile, []byte(credsContent), 0600); err != nil {
 		return fmt.Errorf("failed to create credentials file: %w", err)
 	}
 
@@ -99,11 +106,18 @@ func (sm *S3FSManager) MountS3FS() error {
 		return nil
 	}
 
+	// Get credentials file path for this specific bucket
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
+
 	// Build mount command
 	args := []string{
 		sm.config.Bucket,
 		sm.config.MountPoint,
-		"-o", "passwd_file=/etc/passwd-s3fs",
+		"-o", fmt.Sprintf("passwd_file=%s", credsFile),
 		"-o", "allow_other",
 		"-o", "umask=000",
 	}
@@ -152,11 +166,18 @@ func (sm *S3FSManager) UnmountS3FS() error {
 
 // AddToFstab adds S3FS mount to /etc/fstab for persistence
 func (sm *S3FSManager) AddToFstab() error {
+	// Get credentials file path for fstab for this specific bucket
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
+
 	// Build fstab options
 	options := []string{
 		"_netdev",
 		"allow_other",
-		"passwd_file=/etc/passwd-s3fs",
+		fmt.Sprintf("passwd_file=%s", credsFile),
 	}
 
 	// Add endpoint URL
@@ -236,6 +257,11 @@ func (sm *S3FSManager) RemoveFromFstab() error {
 func (sm *S3FSManager) isS3FSInstalled() bool {
 	cmd := exec.Command("which", "s3fs")
 	return cmd.Run() == nil
+}
+
+// IsS3FSInstalled checks if s3fs is installed (exported version)
+func (sm *S3FSManager) IsS3FSInstalled() bool {
+	return sm.isS3FSInstalled()
 }
 
 // isPackageManagerAvailable checks if a package manager is available

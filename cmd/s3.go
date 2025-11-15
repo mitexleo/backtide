@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mitexleo/backtide/internal/s3fs"
 
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
@@ -160,6 +163,25 @@ func runS3Add(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Create mount point directory
+	fmt.Printf("\n📁 Creating mount point: %s\n", newBucket.MountPoint)
+	if err := os.MkdirAll(newBucket.MountPoint, 0755); err != nil {
+		fmt.Printf("⚠️  Warning: Could not create mount point directory: %v\n", err)
+		fmt.Println("   You may need to create it manually or run with sudo")
+	} else {
+		fmt.Printf("✅ Mount point created: %s\n", newBucket.MountPoint)
+	}
+
+	// Add to fstab for persistence
+	fmt.Println("📝 Adding to /etc/fstab for automatic mounting...")
+	s3fsManager := s3fs.NewS3FSManager(newBucket)
+	if err := s3fsManager.AddToFstab(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not add to /etc/fstab: %v\n", err)
+		fmt.Println("   You may need to run with sudo or add it manually")
+	} else {
+		fmt.Println("✅ Added to /etc/fstab for automatic mounting")
+	}
+
 	fmt.Printf("\n✅ S3 bucket configuration added successfully!\n")
 	fmt.Printf("Name: %s\n", newBucket.Name)
 	fmt.Printf("Bucket: %s\n", newBucket.Bucket)
@@ -241,6 +263,15 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Clean up credentials file
+	fmt.Println("\n🧹 Cleaning up credentials...")
+	if err := cleanupBucketCredentials(*bucketToRemove); err != nil {
+		fmt.Printf("⚠️  Warning: Could not clean up credentials: %v\n", err)
+		fmt.Println("   You may need to manually remove the credentials file")
+	} else {
+		fmt.Println("✅ Credentials cleaned up successfully")
+	}
+
 	fmt.Printf("✅ S3 bucket configuration '%s' removed successfully!\n", bucketToRemove.Name)
 	if len(dependentJobs) > 0 {
 		fmt.Println("Remember to update dependent jobs with different bucket configurations.")
@@ -320,6 +351,7 @@ func printBucketConfig(bucket config.BucketConfig, usageCount int) {
 	fmt.Printf("   Path Style: %v\n", bucket.UsePathStyle)
 	fmt.Printf("   Access Key: %s\n", maskString(bucket.AccessKey))
 	fmt.Printf("   Secret Key: %s\n", maskString(bucket.SecretKey))
+	fmt.Printf("   Credentials File: %s\n", getCredentialsFilePath(bucket.ID))
 	fmt.Printf("   Used by: %d job(s)\n", usageCount)
 }
 
@@ -463,6 +495,34 @@ func generateBucketID() string {
 	return fmt.Sprintf("bucket-%d", time.Now().Unix())
 }
 
+// getCredentialsFilePath returns the path to the credentials file for a bucket
+func getCredentialsFilePath(bucketID string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "unknown"
+	}
+	return filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucketID))
+}
+
+// cleanupBucketCredentials removes the credentials file for a bucket
+func cleanupBucketCredentials(bucket config.BucketConfig) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucket.ID))
+
+	// Check if file exists before trying to remove
+	if _, err := os.Stat(credsFile); err == nil {
+		if err := os.Remove(credsFile); err != nil {
+			return fmt.Errorf("failed to remove credentials file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func testBucket(bucket config.BucketConfig) {
 	fmt.Printf("Testing connectivity to: %s\n", bucket.Bucket)
 	fmt.Printf("Provider: %s\n", bucket.Provider)
@@ -474,12 +534,90 @@ func testBucket(bucket config.BucketConfig) {
 	}())
 	fmt.Printf("Mount Point: %s\n", bucket.MountPoint)
 
-	// This would normally test S3 connectivity
-	// For now, we'll just show a message
-	fmt.Println("\n🔧 S3 bucket connectivity testing feature coming soon!")
-	fmt.Println("This would normally:")
-	fmt.Println("  - Mount the S3 bucket")
-	fmt.Println("  - Create a test file")
-	fmt.Println("  - Verify read/write permissions")
-	fmt.Println("  - Clean up test files")
+	fmt.Println("\n🔧 Testing S3 bucket connectivity...")
+
+	// Create S3FS manager
+	s3fsManager := s3fs.NewS3FSManager(bucket)
+
+	// Check if s3fs is installed
+	fmt.Println("1. Checking if s3fs-fuse is installed...")
+	if !s3fsManager.IsS3FSInstalled() {
+		fmt.Println("❌ s3fs-fuse is not installed")
+		fmt.Println("💡 Install it with: sudo apt-get install s3fs (or your package manager)")
+		return
+	}
+	fmt.Println("✅ s3fs-fuse is installed")
+
+	// Setup S3FS (create mount point and credentials)
+	fmt.Println("2. Setting up S3FS configuration...")
+	if err := s3fsManager.SetupS3FS(); err != nil {
+		fmt.Printf("❌ Setup failed: %v\n", err)
+		return
+	}
+	fmt.Println("✅ S3FS setup completed")
+
+	// Mount the bucket
+	fmt.Println("3. Mounting S3 bucket...")
+	if err := s3fsManager.MountS3FS(); err != nil {
+		fmt.Printf("❌ Mount failed: %v\n", err)
+		fmt.Println("💡 Check your credentials and network connectivity")
+		return
+	}
+	fmt.Println("✅ S3 bucket mounted successfully")
+
+	// Test file operations
+	fmt.Println("4. Testing file operations...")
+	testFilePath := filepath.Join(bucket.MountPoint, "backtide-test-file.txt")
+	testContent := fmt.Sprintf("Backtide connectivity test - %s", time.Now().Format(time.RFC3339))
+
+	// Write test file
+	if err := os.WriteFile(testFilePath, []byte(testContent), 0644); err != nil {
+		fmt.Printf("❌ Write test failed: %v\n", err)
+		s3fsManager.UnmountS3FS()
+		return
+	}
+	fmt.Println("✅ Write test passed")
+
+	// Read test file
+	readContent, err := os.ReadFile(testFilePath)
+	if err != nil {
+		fmt.Printf("❌ Read test failed: %v\n", err)
+		s3fsManager.UnmountS3FS()
+		return
+	}
+
+	if string(readContent) != testContent {
+		fmt.Printf("❌ Read verification failed: expected '%s', got '%s'\n", testContent, string(readContent))
+		s3fsManager.UnmountS3FS()
+		return
+	}
+	fmt.Println("✅ Read test passed")
+
+	// Delete test file
+	if err := os.Remove(testFilePath); err != nil {
+		fmt.Printf("❌ Cleanup failed: %v\n", err)
+		s3fsManager.UnmountS3FS()
+		return
+	}
+	fmt.Println("✅ Cleanup test passed")
+
+	// Unmount
+	fmt.Println("5. Unmounting test bucket...")
+	if err := s3fsManager.UnmountS3FS(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not unmount bucket: %v\n", err)
+		fmt.Println("   You may need to unmount manually with: fusermount -u " + bucket.MountPoint)
+	} else {
+		fmt.Println("✅ Bucket unmounted successfully")
+	}
+
+	// Clean up test credentials
+	fmt.Println("6. Cleaning up test credentials...")
+	if err := cleanupBucketCredentials(bucket); err != nil {
+		fmt.Printf("⚠️  Warning: Could not clean up test credentials: %v\n", err)
+	} else {
+		fmt.Println("✅ Test credentials cleaned up")
+	}
+
+	fmt.Println("\n🎉 All tests passed! S3 bucket connectivity is working correctly.")
+	fmt.Printf("📊 Summary: %s bucket '%s' is accessible and functional\n", bucket.Provider, bucket.Bucket)
 }
