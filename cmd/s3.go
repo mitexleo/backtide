@@ -94,8 +94,8 @@ func runS3List(cmd *cobra.Command, args []string) {
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
+		// For S3 commands, allow empty config and create minimal one
+		cfg = config.DefaultConfig()
 	}
 
 	fmt.Println("=== S3 Bucket Configurations ===")
@@ -125,8 +125,8 @@ func runS3Add(cmd *cobra.Command, args []string) {
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
+		// For S3 commands, allow empty config and create minimal one
+		cfg = config.DefaultConfig()
 	}
 
 	fmt.Println("=== Add S3 Bucket Configuration ===")
@@ -251,8 +251,8 @@ func runS3Test(cmd *cobra.Command, args []string) {
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
+		// For S3 commands, allow empty config and create minimal one
+		cfg = config.DefaultConfig()
 	}
 
 	fmt.Println("=== Test S3 Bucket Connectivity ===")
