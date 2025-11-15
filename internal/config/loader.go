@@ -71,7 +71,7 @@ func SaveConfig(config *BackupConfig, configPath string) error {
 // ValidateConfig validates the configuration
 func ValidateConfig(config *BackupConfig) error {
 	// Allow empty config for S3 management operations
-	if len(config.Jobs) == 0 && len(config.Buckets) == 0 {
+	if len(config.Jobs) == 0 {
 		return nil
 	}
 
@@ -162,8 +162,8 @@ func ValidateConfig(config *BackupConfig) error {
 		}
 	}
 
-	// Only require backup path if local storage is used
-	if usesLocalStorage && config.BackupPath == "" {
+	// Only require backup path if local storage is used and jobs exist
+	if usesLocalStorage && config.BackupPath == "" && len(config.Jobs) > 0 {
 		return fmt.Errorf("backup path cannot be empty when using local storage")
 	}
 
