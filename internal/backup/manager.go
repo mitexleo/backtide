@@ -10,7 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mitexleo/backtide/internal/config"
@@ -33,10 +34,33 @@ func NewBackupManager(cfg config.BackupConfig) *BackupManager {
 // CreateBackup creates a backup of specified directories
 func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 	backupID := generateBackupID()
-	backupDir := filepath.Join(bm.backupPath, backupID)
+	// Determine backup directory based on storage configuration
+	var backupDir string
+	var useLocalStorage bool
+
+	// Check if the current job uses local storage
+	if len(bm.config.Jobs) > 0 {
+		useLocalStorage = bm.config.Jobs[0].Storage.Local
+	}
+
+	if useLocalStorage && bm.backupPath != "" {
+		backupDir = filepath.Join(bm.backupPath, backupID)
+	} else {
+		// S3-only mode - use temporary directory that will be copied to S3
+		backupDir = filepath.Join(bm.config.TempPath, backupID)
+	}
 
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	// In S3-only mode, ensure we clean up the temp directory after backup
+	if !useLocalStorage {
+		defer func() {
+			if err := os.RemoveAll(backupDir); err != nil {
+				fmt.Printf("Warning: Failed to clean up temp directory %s: %v\n", backupDir, err)
+			}
+		}()
 	}
 
 	var backupDirs []config.BackupDirectory
@@ -65,9 +89,36 @@ func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 		Compressed:  bm.config.Directories[0].Compression, // Assume all have same compression setting
 	}
 
-	// Save metadata
-	if err := bm.saveMetadata(backupDir, metadata); err != nil {
-		return nil, fmt.Errorf("failed to save backup metadata: %w", err)
+	// Save metadata based on storage configuration
+	if useLocalStorage {
+		// Save metadata to local storage
+		if err := bm.saveMetadata(backupDir, metadata); err != nil {
+			return nil, fmt.Errorf("failed to save backup metadata locally: %w", err)
+		}
+		fmt.Printf("✅ Backup metadata stored locally\n")
+	}
+
+	// Save metadata to S3 if configured and S3 storage is enabled
+	var useS3Storage bool
+	if len(bm.config.Jobs) > 0 {
+		useS3Storage = bm.config.Jobs[0].Storage.S3
+	}
+
+	if useS3Storage && bm.config.S3Config.Bucket != "" {
+		s3MetadataPath := filepath.Join(bm.config.S3Config.MountPoint, "backtide-metadata", backupID, "metadata.json")
+		if err := bm.saveMetadataToPath(s3MetadataPath, metadata); err != nil {
+			fmt.Printf("Warning: Failed to save metadata to S3: %v\n", err)
+			if !useLocalStorage {
+				// In S3-only mode, this is critical - we can't proceed without S3 metadata
+				return nil, fmt.Errorf("S3-only mode requires metadata storage in S3: %w", err)
+			} else {
+				fmt.Println("Metadata is only stored locally. Consider mounting S3 for disaster recovery.")
+			}
+		} else {
+			fmt.Printf("✅ Backup metadata stored in S3\n")
+		}
+	} else if !useLocalStorage && useS3Storage {
+		return nil, fmt.Errorf("S3 storage is enabled but S3 configuration is missing")
 	}
 
 	fmt.Printf("Backup created successfully: %s (Size: %d bytes)\n", backupID, totalSize)
@@ -76,14 +127,79 @@ func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 
 // RestoreBackup restores a backup to original locations
 func (bm *BackupManager) RestoreBackup(backupID string) error {
-	backupDir := filepath.Join(bm.backupPath, backupID)
-	metadata, err := bm.loadMetadata(backupDir)
+	// Check storage configuration for this job
+	var useLocalStorage, useS3Storage bool
+	if len(bm.config.Jobs) > 0 {
+		useLocalStorage = bm.config.Jobs[0].Storage.Local
+		useS3Storage = bm.config.Jobs[0].Storage.S3
+	}
+
+	// Determine backup directory location based on storage configuration
+	var backupDir string
+	if useLocalStorage && bm.backupPath != "" {
+		backupDir = filepath.Join(bm.backupPath, backupID)
+	} else if useS3Storage {
+		// S3 storage mode - look for backup in S3
+		backupDir = filepath.Join(bm.config.S3Config.MountPoint, "backups", backupID)
+	} else {
+		return fmt.Errorf("no valid storage location found for backup %s", backupID)
+	}
+	// Try to load metadata from appropriate location
+	var metadata *config.BackupMetadata
+	var err error
+	if useS3Storage && !useLocalStorage {
+		// S3-only mode: load metadata from S3
+		s3MetadataPath := filepath.Join(bm.config.S3Config.MountPoint, "backtide-metadata", backupID, "metadata.json")
+		metadata, err = bm.loadMetadata(s3MetadataPath)
+		if err != nil {
+			return fmt.Errorf("failed to load backup metadata from S3: %w", err)
+		}
+	} else if useLocalStorage {
+		// Local storage mode: load metadata from local
+		metadata, err = bm.loadMetadata(backupDir)
+		if err != nil && useS3Storage {
+			// If local metadata not found but S3 is enabled, try S3
+			s3MetadataPath := filepath.Join(bm.config.S3Config.MountPoint, "backtide-metadata", backupID, "metadata.json")
+			metadata, err = bm.loadMetadata(s3MetadataPath)
+			if err != nil {
+				return fmt.Errorf("failed to load backup metadata from S3: %w", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("failed to load backup metadata: %w", err)
+		}
+	} else {
+		return fmt.Errorf("no valid storage location found for metadata")
+	}
 	if err != nil {
 		return fmt.Errorf("failed to load backup metadata: %w", err)
 	}
 
+	// For S3 storage mode, we need to copy backup files from S3 to temp location
+	var tempRestoreDir string
+	if useS3Storage && !useLocalStorage {
+		tempRestoreDir = filepath.Join(bm.config.TempPath, "restore", backupID)
+		if err := os.MkdirAll(tempRestoreDir, 0755); err != nil {
+			return fmt.Errorf("failed to create temp restore directory: %w", err)
+		}
+		defer os.RemoveAll(tempRestoreDir)
+	}
+
 	for _, backupDirInfo := range metadata.Directories {
-		if err := bm.restoreDirectory(backupDir, backupDirInfo); err != nil {
+		var restoreSourceDir string
+		if useS3Storage && !useLocalStorage {
+			// S3-only mode: copy backup file from S3 to temp location
+			s3BackupFile := filepath.Join(bm.config.S3Config.MountPoint, "backups", backupID, fmt.Sprintf("%s.tar.gz", backupDirInfo.Name))
+			tempBackupFile := filepath.Join(tempRestoreDir, fmt.Sprintf("%s.tar.gz", backupDirInfo.Name))
+
+			if err := copyFile(s3BackupFile, tempBackupFile); err != nil {
+				return fmt.Errorf("failed to copy backup file from S3: %w", err)
+			}
+			restoreSourceDir = tempRestoreDir
+		} else {
+			restoreSourceDir = backupDir
+		}
+
+		if err := bm.restoreDirectory(restoreSourceDir, backupDirInfo); err != nil {
 			return fmt.Errorf("failed to restore directory %s: %w", backupDirInfo.Path, err)
 		}
 	}
@@ -94,28 +210,87 @@ func (bm *BackupManager) RestoreBackup(backupID string) error {
 
 // ListBackups returns a list of all available backups
 func (bm *BackupManager) ListBackups() ([]config.BackupMetadata, error) {
-	entries, err := os.ReadDir(bm.backupPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []config.BackupMetadata{}, nil
-		}
-		return nil, fmt.Errorf("failed to read backup directory: %w", err)
+	// Check storage configuration for this job
+	var useLocalStorage, useS3Storage bool
+	if len(bm.config.Jobs) > 0 {
+		useLocalStorage = bm.config.Jobs[0].Storage.Local
+		useS3Storage = bm.config.Jobs[0].Storage.S3
 	}
 
-	var backups []config.BackupMetadata
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
+	// If only S3 storage is enabled, list from S3
+	if useS3Storage && !useLocalStorage {
+		return bm.listBackupsFromS3()
+	}
 
-		backupDir := filepath.Join(bm.backupPath, entry.Name())
-		metadata, err := bm.loadMetadata(backupDir)
+	// If only local storage is enabled, list from local
+	if useLocalStorage && !useS3Storage {
+		entries, err := os.ReadDir(bm.backupPath)
 		if err != nil {
-			fmt.Printf("Warning: Failed to load metadata for backup %s: %v\n", entry.Name(), err)
-			continue
+			if os.IsNotExist(err) {
+				return []config.BackupMetadata{}, nil
+			}
+			return nil, fmt.Errorf("failed to read backup directory: %w", err)
 		}
 
-		backups = append(backups, *metadata)
+		var backups []config.BackupMetadata
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			backupDir := filepath.Join(bm.backupPath, entry.Name())
+			metadata, err := bm.loadMetadata(backupDir)
+			if err != nil {
+				fmt.Printf("Warning: Failed to load metadata for backup %s: %v\n", entry.Name(), err)
+				continue
+			}
+
+			backups = append(backups, *metadata)
+		}
+
+		return backups, nil
+	}
+
+	// If both storage locations are enabled, merge backups from both
+	var localBackups, s3Backups []config.BackupMetadata
+
+	if useLocalStorage {
+		entries, err := os.ReadDir(bm.backupPath)
+		if err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+
+				backupDir := filepath.Join(bm.backupPath, entry.Name())
+				metadata, err := bm.loadMetadata(backupDir)
+				if err != nil {
+					fmt.Printf("Warning: Failed to load metadata for backup %s: %v\n", entry.Name(), err)
+					continue
+				}
+
+				localBackups = append(localBackups, *metadata)
+			}
+		}
+	}
+
+	if useS3Storage {
+		s3Backups, _ = bm.listBackupsFromS3()
+	}
+
+	// Merge backups, removing duplicates by ID
+	allBackups := make(map[string]config.BackupMetadata)
+	for _, backup := range localBackups {
+		allBackups[backup.ID] = backup
+	}
+	for _, backup := range s3Backups {
+		allBackups[backup.ID] = backup
+	}
+
+	// Convert map back to slice
+	var backups []config.BackupMetadata
+	for _, backup := range allBackups {
+		backups = append(backups, backup)
 	}
 
 	return backups, nil
@@ -177,12 +352,31 @@ func (bm *BackupManager) CleanupOldBackups() error {
 
 	// Delete marked backups
 	for _, backupID := range toDelete {
-		backupDir := filepath.Join(bm.backupPath, backupID)
-		if err := os.RemoveAll(backupDir); err != nil {
-			fmt.Printf("Warning: Failed to delete backup %s: %v\n", backupID, err)
-			continue
+		// Check storage configuration for this job
+		var useLocalStorage, useS3Storage bool
+		if len(bm.config.Jobs) > 0 {
+			useLocalStorage = bm.config.Jobs[0].Storage.Local
+			useS3Storage = bm.config.Jobs[0].Storage.S3
 		}
-		fmt.Printf("Deleted old backup: %s\n", backupID)
+
+		// Delete from local storage if enabled
+		if useLocalStorage && bm.backupPath != "" {
+			backupDir := filepath.Join(bm.backupPath, backupID)
+			if err := os.RemoveAll(backupDir); err != nil {
+				fmt.Printf("Warning: Failed to delete backup %s from local storage: %v\n", backupID, err)
+			} else {
+				fmt.Printf("✅ Deleted backup from local storage: %s\n", backupID)
+			}
+		}
+
+		// Delete from S3 storage if enabled
+		if useS3Storage {
+			if err := bm.deleteBackupFromS3(backupID); err != nil {
+				fmt.Printf("Warning: Failed to delete backup %s from S3: %v\n", backupID, err)
+			} else {
+				fmt.Printf("✅ Deleted backup from S3: %s\n", backupID)
+			}
+		}
 	}
 
 	fmt.Printf("Cleanup completed. Removed %d old backups\n", len(toDelete))
@@ -192,6 +386,26 @@ func (bm *BackupManager) CleanupOldBackups() error {
 // backupDirectory handles backing up a single directory
 func (bm *BackupManager) backupDirectory(dirCfg config.DirectoryConfig, backupDir string) (*config.BackupDirectory, error) {
 	backupFile := filepath.Join(backupDir, fmt.Sprintf("%s.tar.gz", dirCfg.Name))
+
+	// Check storage configuration for this job
+	var useS3Storage bool
+	if len(bm.config.Jobs) > 0 {
+		useS3Storage = bm.config.Jobs[0].Storage.S3
+	}
+
+	// Copy backup file to S3 if S3 storage is enabled
+	if useS3Storage {
+		defer func() {
+			// Copy backup file to S3
+			backupID := generateBackupID()
+			s3BackupFile := filepath.Join(bm.config.S3Config.MountPoint, "backups", backupID, fmt.Sprintf("%s.tar.gz", dirCfg.Name))
+			if err := copyFile(backupFile, s3BackupFile); err != nil {
+				fmt.Printf("Warning: Failed to copy backup file to S3: %v\n", err)
+			} else {
+				fmt.Printf("✅ Backup file copied to S3: %s\n", s3BackupFile)
+			}
+		}()
+	}
 
 	// Create backup file
 	file, err := os.Create(backupFile)
@@ -217,6 +431,12 @@ func (bm *BackupManager) backupDirectory(dirCfg config.DirectoryConfig, backupDi
 	var fileCount int
 	permissions := make(map[string]config.FilePerm)
 	checksum := sha256.New()
+
+	// Store the original permissions for the root directory
+	rootInfo, err := os.Stat(dirCfg.Path)
+	if err == nil {
+		permissions["."] = getFilePerm(dirCfg.Path, rootInfo)
+	}
 
 	err = filepath.Walk(dirCfg.Path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -266,14 +486,8 @@ func (bm *BackupManager) backupDirectory(dirCfg config.DirectoryConfig, backupDi
 			}
 		}
 
-		// Store permissions
-		permissions[relPath] = config.FilePerm{
-			Mode:    info.Mode().String(),
-			UID:     getUID(filePath),
-			GID:     getGID(filePath),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Format(time.RFC3339),
-		}
+		// Store permissions with proper UID/GID extraction
+		permissions[relPath] = getFilePerm(filePath, info)
 
 		totalSize += info.Size()
 		fileCount++
@@ -363,14 +577,10 @@ func (bm *BackupManager) restoreDirectory(backupDir string, backupDirInfo config
 			}
 			outFile.Close()
 
-			// Restore permissions
+			// Restore permissions and ownership
 			if perm, exists := backupDirInfo.Permissions[header.Name]; exists {
-				if err := os.Chmod(targetPath, parseFileMode(perm.Mode)); err != nil {
-					return fmt.Errorf("failed to restore permissions: %w", err)
-				}
-				if err := os.Chown(targetPath, perm.UID, perm.GID); err != nil {
-					// Chown might fail if not running as root, just log warning
-					fmt.Printf("Warning: Failed to change ownership of %s: %v\n", targetPath, err)
+				if err := restoreFilePermissions(targetPath, perm); err != nil {
+					return fmt.Errorf("failed to restore permissions for %s: %w", targetPath, err)
 				}
 			}
 		}
@@ -382,12 +592,23 @@ func (bm *BackupManager) restoreDirectory(backupDir string, backupDirInfo config
 // saveMetadata saves backup metadata to JSON file
 func (bm *BackupManager) saveMetadata(backupDir string, metadata *config.BackupMetadata) error {
 	metadataFile := filepath.Join(backupDir, "metadata.json")
+	return bm.saveMetadataToPath(metadataFile, metadata)
+}
+
+// saveMetadataToPath saves backup metadata to a specific path
+func (bm *BackupManager) saveMetadataToPath(path string, metadata *config.BackupMetadata) error {
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
 	data, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(metadataFile, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 // loadMetadata loads backup metadata from JSON file
@@ -411,31 +632,176 @@ func generateBackupID() string {
 	return fmt.Sprintf("backup-%s", time.Now().Format("2006-01-02-15-04-05"))
 }
 
-func getUID(path string) int {
-	// In a real implementation, you would use syscall.Stat to get UID
-	// For now, return 0 (root) as placeholder
-	return 0
+// getFilePerm extracts detailed file permissions including UID/GID
+func getFilePerm(path string, info os.FileInfo) config.FilePerm {
+	perm := config.FilePerm{
+		Mode:    info.Mode().String(),
+		Size:    info.Size(),
+		ModTime: info.ModTime().Format(time.RFC3339),
+	}
+
+	// Get UID and GID using syscall
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		perm.UID = int(stat.Uid)
+		perm.GID = int(stat.Gid)
+	}
+
+	return perm
 }
 
-func getGID(path string) int {
-	// In a real implementation, you would use syscall.Stat to get GID
-	// For now, return 0 (root) as placeholder
-	return 0
+// restoreFilePermissions restores file permissions and ownership
+func restoreFilePermissions(path string, perm config.FilePerm) error {
+	// Parse file mode
+	mode, err := parseFileMode(perm.Mode)
+	if err != nil {
+		return fmt.Errorf("failed to parse mode %s: %w", perm.Mode, err)
+	}
+
+	// Set file permissions
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("failed to chmod %s: %w", path, err)
+	}
+
+	// Set file ownership (requires root privileges)
+	if os.Geteuid() == 0 {
+		if err := os.Chown(path, perm.UID, perm.GID); err != nil {
+			// Log warning but don't fail - ownership might not be critical
+			fmt.Printf("Warning: Failed to chown %s to %d:%d: %v\n", path, perm.UID, perm.GID, err)
+		}
+	} else {
+		fmt.Printf("Info: Skipping chown for %s (not running as root)\n", path)
+	}
+
+	return nil
 }
 
-func parseFileMode(modeStr string) os.FileMode {
-	// Parse file mode string to os.FileMode
-	// This is a simplified implementation
-	if strings.HasPrefix(modeStr, "drwx") {
-		return 0755
+func parseFileMode(modeStr string) (os.FileMode, error) {
+	// Handle octal mode strings (e.g., "0755")
+	if len(modeStr) == 4 && modeStr[0] >= '0' && modeStr[0] <= '7' {
+		mode, err := strconv.ParseUint(modeStr, 8, 32)
+		if err != nil {
+			return 0, err
+		}
+		return os.FileMode(mode), nil
 	}
-	if strings.HasPrefix(modeStr, "-rwx") {
-		return 0755
+
+	// Handle symbolic mode strings (e.g., "drwxr-xr-x")
+	// Extract the permission bits (last 9 characters)
+	if len(modeStr) > 9 {
+		modeStr = modeStr[len(modeStr)-9:]
 	}
-	if strings.HasPrefix(modeStr, "-rw-") {
-		return 0644
+
+	var mode os.FileMode
+	for i, c := range modeStr {
+		bitPos := uint(8 - i)
+		switch c {
+		case 'r':
+			mode |= 1 << bitPos
+		case 'w':
+			mode |= 1 << (bitPos - 1)
+		case 'x':
+			mode |= 1 << (bitPos - 2)
+		case 's', 'S', 't', 'T':
+			// Handle special bits - for now, just preserve execute bits
+			if i == 2 || i == 5 || i == 8 {
+				mode |= 1 << (bitPos - 2)
+			}
+		case '-':
+			// Skip, already 0
+		default:
+			return 0, fmt.Errorf("invalid file mode character: %c", c)
+		}
 	}
-	return 0644
+
+	return mode, nil
+}
+
+// listBackupsFromS3 lists backups from S3 metadata
+func (bm *BackupManager) listBackupsFromS3() ([]config.BackupMetadata, error) {
+	if bm.config.S3Config.Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration required for S3-only mode")
+	}
+
+	metadataDir := filepath.Join(bm.config.S3Config.MountPoint, "backtide-metadata")
+	entries, err := os.ReadDir(metadataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []config.BackupMetadata{}, nil
+		}
+		return nil, fmt.Errorf("failed to read S3 metadata directory: %w", err)
+	}
+
+	var backups []config.BackupMetadata
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		metadataPath := filepath.Join(metadataDir, entry.Name(), "metadata.json")
+		metadata, err := bm.loadMetadata(metadataPath)
+		if err != nil {
+			fmt.Printf("Warning: Failed to load metadata for backup %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		backups = append(backups, *metadata)
+	}
+
+	return backups, nil
+}
+
+// deleteBackupFromS3 deletes a backup from S3 storage
+func (bm *BackupManager) deleteBackupFromS3(backupID string) error {
+	if bm.config.S3Config.Bucket == "" {
+		return fmt.Errorf("S3 configuration required for S3-only mode")
+	}
+
+	// Delete metadata from S3
+	metadataPath := filepath.Join(bm.config.S3Config.MountPoint, "backtide-metadata", backupID)
+	if err := os.RemoveAll(metadataPath); err != nil {
+		return fmt.Errorf("failed to delete metadata from S3: %w", err)
+	}
+
+	// Delete backup files from S3
+	backupPath := filepath.Join(bm.config.S3Config.MountPoint, "backups", backupID)
+	if err := os.RemoveAll(backupPath); err != nil {
+		return fmt.Errorf("failed to delete backup files from S3: %w", err)
+	}
+
+	return nil
+}
+
+// copyFile copies a file from source to destination
+func copyFile(src, dst string) error {
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Copy file permissions
+	sourceInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, sourceInfo.Mode())
 }
 
 func unique(strings []string) []string {

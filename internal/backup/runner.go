@@ -87,6 +87,8 @@ func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
 	jobBackupConfig.Directories = job.Directories
 	jobBackupConfig.S3Config = job.S3Config
 	jobBackupConfig.RetentionPolicy = job.Retention
+	// Create a single-job config with this job's storage settings
+	jobBackupConfig.Jobs = []config.BackupJob{*job}
 
 	jobBackupManager := NewBackupManager(jobBackupConfig)
 

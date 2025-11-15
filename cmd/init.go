@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/mitexleo/backtide/internal/s3fs"
@@ -132,9 +133,14 @@ func runInit(cmd *cobra.Command, args []string) {
 func configureBackupJobInteractive() config.BackupJob {
 	reader := bufio.NewReader(os.Stdin)
 	job := config.BackupJob{
+		ID:         generateJobID(),
 		Enabled:    true,
 		SkipDocker: false,
 		SkipS3:     false,
+		Storage: config.StorageConfig{
+			Local: false,
+			S3:    false,
+		},
 	}
 
 	// Job name and description
@@ -144,6 +150,7 @@ func configureBackupJobInteractive() config.BackupJob {
 	if job.Name == "" {
 		job.Name = "default-backup"
 	}
+	fmt.Printf("Job ID: %s\n", job.ID)
 
 	fmt.Print("Job description: ")
 	desc, _ := reader.ReadString('\n')
@@ -247,17 +254,39 @@ func configureBackupJobInteractive() config.BackupJob {
 	}
 	fmt.Printf("✅ Retention: %d days, %d recent, %d monthly\n", keepDays, keepCount, keepMonthly)
 
-	// S3 configuration
-	fmt.Println("\n=== S3 Storage Configuration ===")
-	fmt.Print("Use S3 for backup storage? (Y/n): ")
-	useS3, _ := reader.ReadString('\n')
-	useS3 = strings.TrimSpace(useS3)
+	// Storage location configuration
+	fmt.Println("\n=== Storage Location Configuration ===")
+	fmt.Println("Where should backups be stored?")
+	fmt.Println("1. S3 only (recommended - prevents local disk exhaustion)")
+	fmt.Println("2. Local only (no S3)")
+	fmt.Println("3. Both S3 and local (redundant storage)")
+	fmt.Print("Choose storage location (1-3): ")
 
-	if useS3 == "" || strings.ToLower(useS3) == "y" {
+	storageChoice, _ := reader.ReadString('\n')
+	storageChoice = strings.TrimSpace(storageChoice)
+
+	switch storageChoice {
+	case "1":
+		job.Storage.S3 = true
+		job.Storage.Local = false
+		fmt.Println("✅ Backups will be stored in S3 only")
 		job.S3Config = configureS3Interactive()
-	} else {
+	case "2":
+		job.Storage.S3 = false
+		job.Storage.Local = true
 		job.SkipS3 = true
-		fmt.Println("✅ S3 storage disabled")
+		fmt.Println("✅ Backups will be stored locally only")
+	case "3":
+		job.Storage.S3 = true
+		job.Storage.Local = true
+		fmt.Println("✅ Backups will be stored in both S3 and locally")
+		job.S3Config = configureS3Interactive()
+	default:
+		// Default to S3 only for safety
+		job.Storage.S3 = true
+		job.Storage.Local = false
+		fmt.Println("❌ Invalid choice, defaulting to S3 only")
+		job.S3Config = configureS3Interactive()
 	}
 
 	// Docker configuration
@@ -527,6 +556,11 @@ func configureDirectoriesInteractive() []config.DirectoryConfig {
 	}
 
 	return directories
+}
+
+// generateJobID creates a unique identifier for backup jobs
+func generateJobID() string {
+	return fmt.Sprintf("job-%s", time.Now().Format("20060102-150405"))
 }
 
 func createExampleConfig() *config.BackupConfig {

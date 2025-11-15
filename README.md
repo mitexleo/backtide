@@ -2,16 +2,28 @@
 
 A comprehensive backup utility for Docker-based applications with S3 integration, built in Go with Cobra CLI framework.
 
+## 🚨 Critical Features for Production Use
+
+- **Disaster Recovery Ready**: All metadata stored in S3 - server loss doesn't mean backup loss
+- **Permission Preservation**: Exact file permissions and ownership restored (PostgreSQL 999:999, etc.)
+- **Single Systemd Service**: Efficient single service for all backup jobs
+- **Job-Based Architecture**: Multiple independent backup configurations
+- **Cross-Platform S3 Support**: AWS, Backblaze B2, Wasabi, DigitalOcean, MinIO, and more
+
 ## Features
 
 - **Multi-directory Backup**: Backup multiple directories with compression
 - **Docker Container Management**: Stop and restart containers during backup operations
 - **S3FS Integration**: Automatic S3FS installation and S3 bucket mounting
-- **Permission Preservation**: Store and restore file permissions and ownership
+- **Permission Preservation**: **Exact file permissions and ownership restored** (PostgreSQL 999:999, MySQL, etc.)
 - **Retention Policies**: Configurable backup retention (days, count, monthly)
 - **Scheduling Options**: Both systemd timer and cron job support
-- **Metadata Tracking**: Comprehensive backup metadata and checksums
+- **Metadata Tracking**: **Comprehensive backup metadata stored in S3 for disaster recovery**
 - **No Database Required**: File-based state management
+- **Job-Based System**: Multiple independent backup configurations
+- **Cross-Platform S3**: AWS, Backblaze B2, Wasabi, DigitalOcean, MinIO, and more
+- **S3-Only Mode**: No local storage by default (prevents disk exhaustion)
+- **Smart Systemd**: Single service reads config file directly, no regeneration needed
 
 ## Installation
 
@@ -79,11 +91,17 @@ Backtide now supports multiple backup jobs with different configurations:
 - **Independent Scheduling**: Each job can have its own schedule
 - **Flexible Configuration**: Different S3 buckets, directories, and retention per job
 - **Granular Control**: Enable/disable jobs individually
+- **Unique Job IDs**: Each job has a unique identifier for tracking
+- **Single Systemd Service**: Efficient single service runs all scheduled jobs
+- **No Service Regeneration**: Systemd service reads config file directly
+- **Easy Restart**: Simple restart command for configuration changes
+- **S3-Only Default**: No local storage to prevent disk exhaustion
 
 ### Example Multi-Job Configuration:
 ```yaml
 jobs:
-  - name: daily-docker-backup
+  - id: job-20240115-143000
+    name: daily-docker-backup
     description: Daily backup of Docker volumes
     enabled: true
     schedule:
@@ -101,7 +119,8 @@ jobs:
     skip_docker: false
     skip_s3: false
   
-  - name: weekly-app-backup  
+  - id: job-20240115-143001
+    name: weekly-app-backup  
     description: Weekly backup of application data
     enabled: true
     schedule:
@@ -161,7 +180,7 @@ Each job shows:
 
 ```yaml
 # ~/.backtide.yaml
-backup_path: /mnt/backup
+backup_path: ""  # Empty = S3-only mode (recommended)
 temp_path: /tmp/backtide
 
 jobs:
@@ -199,7 +218,8 @@ jobs:
 
 Each backup job supports:
 
-- **name**: Unique identifier for the job
+- **id**: Unique identifier for the job (auto-generated)
+- **name**: Human-readable identifier for the job
 - **description**: Human-readable description
 - **enabled**: Whether the job is active
 - **schedule**: Automatic scheduling configuration
@@ -235,17 +255,23 @@ Each backup job supports:
 
 ## Scheduling & Automation
 
-### Systemd Services for Multiple Jobs
+### Systemd Service for All Jobs (Smart Design)
 
 ```bash
-# Install systemd services for all scheduled jobs
+# Install single systemd service for all backup jobs
 sudo backtide systemd-jobs install
 
-# Check status of all job services
+# Restart service after configuration changes
+sudo backtide systemd-jobs restart
+
+# Check status of the service
 backtide systemd-jobs status
 
-# Uninstall all job services
+# Uninstall the service
 sudo backtide systemd-jobs uninstall
+
+# Check service status
+backtide systemd-jobs status
 ```
 
 ### Single Job Systemd Service
@@ -339,6 +365,27 @@ backtide cleanup
 # Cleanup dry run
 backtide cleanup --dry-run
 ```
+
+### Storage Modes
+
+#### S3-Only Mode (Recommended)
+- **No local storage**: Backups go directly to S3
+- **Prevents disk exhaustion**: No risk of filling up server storage
+- **Disaster recovery ready**: All metadata stored in S3
+- **Default configuration**: `backup_path: ""`
+
+#### Local + S3 Mode
+- **Local copies**: Backups stored locally and in S3
+- **Faster restores**: Local copies for quick recovery
+- **Requires disk space**: Set `backup_path: "/mnt/backup"`
+
+### Systemd Service Management
+
+#### Smart Systemd Design
+- **Single service**: One service runs all backup jobs
+- **No regeneration**: Service reads config file directly
+- **Easy updates**: Modify config, then restart service
+- **Efficient**: No complex multi-service management
 
 ### Legacy Scheduling (Single Job)
 
@@ -500,56 +547,95 @@ Configuration File (~/.backtide.yaml)
     └── S3: Wasabi
 ```
 
-### Systemd Services Structure
+### Systemd Service Structure
 
 When using `systemd-jobs install`:
 ```
 /etc/systemd/system/
-├── backtide-daily-docker-backup.service
-├── backtide-daily-docker-backup.timer
-├── backtide-weekly-app-backup.service
-├── backtide-weekly-app-backup.timer
-└── backtide-monthly-archive.service
-    └── backtide-monthly-archive.timer
+├── backtide.service          # Single service for all jobs
+└── backtide.timer            # Single timer for scheduled execution
 
-/etc/backtide/
-├── daily-docker-backup.yaml
-├── weekly-app-backup.yaml
-└── monthly-archive.yaml
+~/.backtide.yaml              # Central configuration for all jobs
+/etc/systemd/system/
+├── backtide.service          # Single service reads config directly
+└── backtide.timer            # Timer for scheduled execution
+```
+
+**Smart Design**: Single service reads configuration file directly - no need to regenerate systemd files when jobs change. Just modify the config and restart the service.
+
+### Storage Architecture
+
+#### S3-Only Mode (Default)
+```
+Backup Process:
+1. Create backup in temp directory
+2. Copy backup files to S3
+3. Store metadata in S3 for disaster recovery
+4. Clean up temp directory
+
+Benefits:
+- No local storage consumption
+- Server loss doesn't affect backups
+- All restore information in cloud
+```
+
+#### Local + S3 Mode
+```
+Backup Process:
+1. Create backup in local directory
+2. Copy metadata to S3 for disaster recovery
+3. Optional: Copy backup files to S3
+
+Benefits:
+- Faster local restores
+- Redundant storage
+- Requires local disk space
 ```
 
 ### Backup Process (Per Job)
 
 1. **Container Management**: Stops all running Docker containers (optional)
 2. **S3 Setup**: Installs and mounts S3 bucket using s3fs (job-specific configuration)
-3. **Backup Creation**: Creates compressed tar archives of specified directories
-4. **Metadata Storage**: Saves file permissions, checksums, and backup metadata
-5. **Container Restoration**: Restarts previously stopped containers
-6. **Cleanup**: Applies retention policies to remove old backups
+3. **Permission Scanning**: Extracts exact file permissions, UID/GID for all files
+4. **Backup Creation**: Creates compressed tar archives of specified directories
+5. **Metadata Storage**: **Saves file permissions, checksums, and backup metadata to S3**
+6. **Container Restoration**: Restarts previously stopped containers
+7. **Cleanup**: Applies retention policies to remove old backups
 
-### File Structure
+### File Structure (S3-Only Mode)
 
 ```
 /var/lib/backtide/
-├── containers.json           # Docker container state
-└── job_states.json          # Job execution state (future)
+├── containers.json           # Docker container state (temporary)
 
-/mnt/backup/
-├── daily-docker-backup/
+/tmp/backtide/                # Temporary backup creation
+└── backup-2024-01-15-10-30-00/
+    ├── metadata.json         # Temporary metadata
+    └── docker-volumes.tar.gz # Temporary backup file
+
+/mnt/s3backup/                # S3 mount point (primary storage)
+├── backtide-metadata/        # Disaster recovery storage
 │   ├── backup-2024-01-15-10-30-00/
-│   │   ├── metadata.json
-│   │   └── docker-volumes.tar.gz
-│   └── backup-2024-01-16-10-30-00/
-└── weekly-app-backup/
-    ├── backup-2024-01-14-02-00-00/
-    │   ├── metadata.json
-    │   └── app-data.tar.gz
-    └── backup-2024-01-21-02-00-00/
+│   │   └── metadata.json     # S3 metadata (critical for recovery)
+│   └── backup-2024-01-14-02-00-00/
+│       └── metadata.json     # S3 metadata
+└── backups/                  # Backup file storage
+    ├── backup-2024-01-15-10-30-00/
+    │   └── docker-volumes.tar.gz
+    └── backup-2024-01-14-02-00-00/
+        └── app-data.tar.gz
 
-/etc/backtide/               # Job-specific configurations
-├── daily-docker-backup.yaml
-└── weekly-app-backup.yaml
+/mnt/s3backup/                # S3 mount point
+└── backtide-metadata/        # Disaster recovery storage
+    ├── backup-2024-01-15-10-30-00/
+    │   └── metadata.json     # S3 metadata (critical for recovery)
+    └── backup-2024-01-14-02-00-00/
+        └── metadata.json     # S3 metadata
+
+~/.backtide.yaml              # Central configuration for all jobs
 ```
+
+**Disaster Recovery**: Critical metadata stored in S3 ensures backups survive server loss.
 
 ```
 /var/lib/backtide/

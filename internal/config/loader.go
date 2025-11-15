@@ -12,7 +12,7 @@ import (
 // DefaultConfig returns a default configuration
 func DefaultConfig() *BackupConfig {
 	return &BackupConfig{
-		BackupPath: "/mnt/backup",
+		BackupPath: "", // Empty = no local storage, use S3 only
 		TempPath:   "/tmp/backtide",
 		S3Config: S3Config{
 			MountPoint:   "/mnt/s3backup",
@@ -203,6 +203,7 @@ func CreateDefaultConfig(configPath string) error {
 
 	// Create a default backup job
 	defaultJob := BackupJob{
+		ID:          "job-default",
 		Name:        "default-backup",
 		Description: "Default backup job for Docker volumes and application data",
 		Enabled:     true,
@@ -226,6 +227,10 @@ func CreateDefaultConfig(configPath string) error {
 		Retention: RetentionPolicy{
 			KeepDays:  30,
 			KeepCount: 10,
+		},
+		Storage: StorageConfig{
+			Local: false,
+			S3:    true,
 		},
 		SkipDocker: false,
 		SkipS3:     false,

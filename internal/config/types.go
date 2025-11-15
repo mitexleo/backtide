@@ -16,6 +16,7 @@ type BackupConfig struct {
 
 // BackupJob represents a complete backup configuration with scheduling
 type BackupJob struct {
+	ID          string            `json:"id" yaml:"id"`
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
@@ -25,6 +26,7 @@ type BackupJob struct {
 	Retention   RetentionPolicy   `json:"retention" yaml:"retention"`
 	SkipDocker  bool              `json:"skip_docker" yaml:"skip_docker"`
 	SkipS3      bool              `json:"skip_s3" yaml:"skip_s3"`
+	Storage     StorageConfig     `json:"storage" yaml:"storage"`
 }
 
 // ScheduleConfig represents backup scheduling configuration
@@ -50,6 +52,12 @@ type S3Config struct {
 	Endpoint     string `json:"endpoint" yaml:"endpoint"`
 	MountPoint   string `json:"mount_point" yaml:"mount_point"`
 	UsePathStyle bool   `json:"use_path_style" yaml:"use_path_style"`
+}
+
+// StorageConfig defines where backups should be stored
+type StorageConfig struct {
+	Local bool `json:"local" yaml:"local"`
+	S3    bool `json:"s3" yaml:"s3"`
 }
 
 // RetentionPolicy defines how long to keep backups
