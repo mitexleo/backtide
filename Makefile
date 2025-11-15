@@ -1,15 +1,14 @@
 # Makefile for Backtide backup utility
 
-.PHONY: build test clean install release version help
+.PHONY: build test clean install version help
 
 # Default target
 help:
-	@echo "Backtide Build Targets:"
-	@echo "  build     - Build the binary"
+	@echo "Backtide Development Build Targets:"
+	@echo "  build     - Build development binary"
 	@echo "  test      - Run tests"
 	@echo "  clean     - Remove build artifacts"
 	@echo "  install   - Install to system"
-	@echo "  release   - Build release binary with version"
 	@echo "  version   - Show current version"
 	@echo "  help      - Show this help"
 
@@ -35,11 +34,7 @@ install: build
 	@echo "Installing Backtide to /usr/local/bin..."
 	sudo mv backtide /usr/local/bin/
 
-# Build release binary with version
-release: VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
-release:
-	@echo "Building release version: $(VERSION)"
-	go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$(VERSION)" -o backtide
+
 
 # Show current version
 version:
@@ -48,15 +43,15 @@ version:
 # Cross-compilation targets
 build-linux:
 	@echo "Building for Linux..."
-	GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$(VERSION)" -o backtide-linux-amd64
+	GOOS=linux GOARCH=amd64 go build -o backtide-linux-amd64
 
 build-darwin:
 	@echo "Building for macOS..."
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$(VERSION)" -o backtide-darwin-amd64
+	GOOS=darwin GOARCH=amd64 go build -o backtide-darwin-amd64
 
 build-windows:
 	@echo "Building for Windows..."
-	GOOS=windows GOARCH=amd64 go build -ldflags="-X github.com/mitexleo/backtide/cmd.version=$(VERSION)" -o backtide-windows-amd64.exe
+	GOOS=windows GOARCH=amd64 go build -o backtide-windows-amd64.exe
 
 # Build all platforms
 build-all: build-linux build-darwin build-windows
@@ -90,9 +85,3 @@ update-deps:
 	@echo "Updating dependencies..."
 	go get -u ./...
 	go mod tidy
-
-# Create tag for release
-tag:
-	@read -p "Enter version (e.g., 1.0.0): " version; \
-	git tag -a v$$version -m "Release v$$version"
-	@echo "Tag created. Push with: git push --tags"

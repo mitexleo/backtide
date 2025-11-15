@@ -854,13 +854,17 @@ systemctl status docker
 
 ## Build and Release
 
-Backtide uses automated GitHub Actions workflows for building and releasing.
+Backtide uses automated semantic versioning with GitHub Actions for building and releasing.
 
-### Automated Builds
+### Automated Semantic Versioning
 
-- **CI Workflow**: Runs on every push to `main` and pull requests
-- **Release Workflow**: Creates releases when version tags are pushed
-- **Manual Releases**: Can be triggered from GitHub UI with custom version
+- **Automatic Versioning**: Version numbers are automatically determined based on commit messages
+- **Conventional Commits**: Use commit message conventions to trigger version bumps:
+  - `feat:` → minor version bump (1.0.0 → 1.1.0)
+  - `fix:` → patch version bump (1.0.0 → 1.0.1) 
+  - `BREAKING CHANGE:` → major version bump (1.0.0 → 2.0.0)
+- **Release Workflow**: Automatically runs on every push to `main` branch
+- **Cross-Platform Builds**: Releases include binaries for Linux, macOS, and Windows
 
 ### Building Locally
 
@@ -881,48 +885,44 @@ make test
 make install
 ```
 
-### Version Management
-
-```bash
-# Show current version
-./scripts/version.sh current
-
-# Calculate next version
-./scripts/version.sh next patch
-
-# Create git tag for release
-./scripts/version.sh tag 1.2.3
-
-# Build release binary
-./scripts/version.sh release 1.2.3
-```
-
 ### Release Process
 
-1. **Create Release Tag**:
-   ```bash
-   git tag -a v1.2.3 -m "Release v1.2.3"
-   git push origin v1.2.3
-   ```
+**Fully Automated**: Just push to the `main` branch with conventional commit messages:
 
-2. **GitHub Actions** automatically:
-   - Builds the binary with the correct version
-   - Runs tests
-   - Creates a GitHub release
-   - Uploads the binary
+```bash
+# Example commit that triggers a minor version bump
+git commit -m "feat: add new S3 provider support"
 
-3. **Manual Release** (optional):
-   - Go to GitHub Actions → Release workflow
-   - Click "Run workflow"
-   - Enter version number (e.g., 1.2.3)
+# Example commit that triggers a patch version bump  
+git commit -m "fix: resolve backup timing issue"
+
+# Example commit that triggers a major version bump
+git commit -m "feat: rewrite configuration system
+
+BREAKING CHANGE: Configuration format changed from YAML to TOML"
+```
+
+**What happens automatically:**
+1. Push to `main` branch triggers release workflow
+2. Commit messages are analyzed for version bump type
+3. New version is calculated (e.g., 1.2.3 → 1.3.0 for `feat:` commits)
+4. GitHub release is created with the new version
+5. Cross-platform binaries are built and uploaded
+6. CHANGELOG.md is automatically updated
+
+**Manual Trigger** (if needed):
+- Go to GitHub Actions → Release workflow
+- Click "Run workflow" to trigger manually
 
 ### Version Command
 
-The built binary includes version information:
+The built binary includes automatically managed version information:
 ```bash
 backtide version
 # Output: Backtide version 1.2.3
 ```
+
+The version is automatically set during the build process based on semantic versioning rules.
 
 ## Development
 
