@@ -27,7 +27,7 @@ func NewS3FSManager(cfg config.BucketConfig) *S3FSManager {
 func (sm *S3FSManager) InstallS3FS() error {
 	// Check if s3fs is already installed
 	if sm.isS3FSInstalled() {
-		fmt.Println("❌ s3fs is not installed")
+		fmt.Println("✅ s3fs is already installed")
 		return nil
 	}
 

@@ -41,6 +41,7 @@ func (dm *DockerManager) StopContainers() ([]config.DockerContainerInfo, error) 
 		}
 
 		// Stop the container
+		// Stop the container
 		cmd := exec.Command("docker", "stop", container.ID)
 		if err := cmd.Run(); err != nil {
 			return stoppedContainers, fmt.Errorf("failed to stop container %s: %w", container.Name, err)
@@ -73,6 +74,7 @@ func (dm *DockerManager) RestoreContainers() error {
 	var errors []string
 
 	for _, container := range stoppedContainers {
+		// Start the container
 		// Start the container
 		cmd := exec.Command("docker", "start", container.ID)
 		if err := cmd.Run(); err != nil {

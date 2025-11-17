@@ -91,11 +91,27 @@ func runRestore(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Find the bucket configuration for this job
+	var bucketConfig *config.BucketConfig
+	for _, bucket := range cfg.Buckets {
+		if bucket.ID == job.BucketID {
+			bucketConfig = &bucket
+			break
+		}
+	}
+
+	// Use S3 mount point as backup path if S3 storage is enabled
+	backupPath := cfg.BackupPath
+	if job.Storage.S3 && bucketConfig != nil {
+		backupPath = bucketConfig.MountPoint
+		fmt.Printf("Using S3 mount point for restore: %s\n", backupPath)
+	}
+
 	// Create job-specific backup config
 	jobBackupConfig := config.BackupConfig{
 		Jobs:       []config.BackupJob{*job},
 		Buckets:    cfg.Buckets,
-		BackupPath: cfg.BackupPath,
+		BackupPath: backupPath,
 		TempPath:   cfg.TempPath,
 	}
 

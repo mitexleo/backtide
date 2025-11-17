@@ -51,6 +51,13 @@ func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
 		return nil, fmt.Errorf("bucket configuration not found for job %s", job.Name)
 	}
 
+	// Use S3 mount point as backup path if S3 storage is enabled
+	backupPath := br.backupPath
+	if job.Storage.S3 && bucketConfig != nil {
+		backupPath = bucketConfig.MountPoint
+		fmt.Printf("Using S3 mount point for backup: %s\n", backupPath)
+	}
+
 	// Initialize managers
 	// Use user-writable directory for Docker state
 	dockerStateDir := filepath.Join(os.Getenv("HOME"), ".backtide")
@@ -100,7 +107,7 @@ func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
 	jobBackupConfig := config.BackupConfig{
 		Jobs:       []config.BackupJob{*job},
 		Buckets:    br.config.Buckets,
-		BackupPath: br.backupPath,
+		BackupPath: backupPath,
 		TempPath:   br.config.TempPath,
 	}
 
@@ -167,11 +174,27 @@ func (br *BackupRunner) RunJobCleanup(jobName string) error {
 	fmt.Printf("Retention policy: %d days, %d recent, %d monthly\n",
 		job.Retention.KeepDays, job.Retention.KeepCount, job.Retention.KeepMonthly)
 
+	// Find the bucket configuration for this job
+	var bucketConfig *config.BucketConfig
+	for _, bucket := range br.config.Buckets {
+		if bucket.ID == job.BucketID {
+			bucketConfig = &bucket
+			break
+		}
+	}
+
+	// Use S3 mount point as backup path if S3 storage is enabled
+	backupPath := br.backupPath
+	if job.Storage.S3 && bucketConfig != nil {
+		backupPath = bucketConfig.MountPoint
+		fmt.Printf("Using S3 mount point for cleanup: %s\n", backupPath)
+	}
+
 	// Create job-specific backup config
 	jobBackupConfig := config.BackupConfig{
 		Jobs:       []config.BackupJob{*job},
 		Buckets:    br.config.Buckets,
-		BackupPath: br.backupPath,
+		BackupPath: backupPath,
 		TempPath:   br.config.TempPath,
 	}
 
