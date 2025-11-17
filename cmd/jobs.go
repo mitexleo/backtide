@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -111,6 +112,9 @@ func init() {
 	jobsCmd.AddCommand(jobsAddCmd)
 
 	jobsListCmd.Flags().BoolVar(&jobsShowAll, "all", false, "show all jobs including disabled ones")
+
+	// Register with command registry
+	commands.RegisterCommand("jobs", jobsCmd)
 }
 
 func runJobsList(cmd *cobra.Command, args []string) {

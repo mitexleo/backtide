@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/mitexleo/backtide/internal/backup"
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,9 @@ Examples:
 func init() {
 	cleanupCmd.Flags().StringVarP(&cleanupJobName, "job", "j", "", "clean up backups for specific job")
 	cleanupCmd.Flags().BoolVarP(&cleanupAll, "all", "a", false, "clean up backups for all jobs")
+
+	// Register with command registry
+	commands.RegisterCommand("cleanup", cleanupCmd)
 }
 
 func runCleanup(cmd *cobra.Command, args []string) {

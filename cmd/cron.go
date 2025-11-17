@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/spf13/cobra"
 )
 
@@ -66,6 +67,9 @@ func init() {
 	cronInstallCmd.Flags().StringVar(&cronUser, "user", "", "user to install cron job for (default: current user)")
 	cronInstallCmd.Flags().StringVar(&cronSchedule, "schedule", "0 2 * * *", "cron schedule expression (default: daily at 2 AM)")
 	cronInstallCmd.Flags().StringVar(&cronConfig, "config", "", "config file path (default: auto-detected)")
+
+	// Register with command registry
+	commands.RegisterCommand("cron", cronCmd)
 }
 
 func runCronInstall(cmd *cobra.Command, args []string) {

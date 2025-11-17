@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/spf13/cobra"
 )
 
@@ -23,4 +24,6 @@ For development builds, this will show "dev".`,
 }
 
 func init() {
+	// Register with command registry
+	commands.RegisterCommand("version", versionCmd)
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/mitexleo/backtide/internal/backup"
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +37,9 @@ Examples:
 func init() {
 	restoreCmd.Flags().StringVarP(&restoreJobName, "job", "j", "", "restore backup for specific job")
 	restoreCmd.Flags().BoolVarP(&restoreForce, "force", "f", false, "skip confirmation prompts")
+
+	// Register with command registry
+	commands.RegisterCommand("restore", restoreCmd)
 }
 
 func runRestore(cmd *cobra.Command, args []string) {

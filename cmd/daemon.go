@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,8 @@ according to its individual schedule.`,
 }
 
 func init() {
-	rootCmd.AddCommand(daemonCmd)
+	// Register with command registry
+	commands.RegisterCommand("daemon", daemonCmd)
 }
 
 func runDaemon(cmd *cobra.Command, args []string) {

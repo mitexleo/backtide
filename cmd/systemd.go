@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -52,10 +53,12 @@ var systemdStatusCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(systemdCmd)
 	systemdCmd.AddCommand(systemdInstallCmd)
 	systemdCmd.AddCommand(systemdUninstallCmd)
 	systemdCmd.AddCommand(systemdStatusCmd)
+
+	// Register with command registry
+	commands.RegisterCommand("systemd", systemdCmd)
 }
 
 func runSystemdInstall(cmd *cobra.Command, args []string) {

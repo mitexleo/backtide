@@ -12,6 +12,7 @@ import (
 
 	"github.com/mitexleo/backtide/internal/s3fs"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -92,6 +93,9 @@ func init() {
 	s3Cmd.AddCommand(s3TestCmd)
 
 	s3RemoveCmd.Flags().BoolVarP(&s3Force, "force", "f", false, "force removal without confirmation")
+
+	// Register with command registry
+	commands.RegisterCommand("s3", s3Cmd)
 }
 
 func runS3List(cmd *cobra.Command, args []string) {

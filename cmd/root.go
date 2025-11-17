@@ -4,7 +4,6 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/mitexleo/backtide/internal/commands"
@@ -48,12 +47,6 @@ func Execute() {
 	// Register all commands with the centralized registry
 	registerCommands()
 
-	// Register all commands with the root command
-	if err := commands.RegisterAllWithRoot(rootCmd); err != nil {
-		fmt.Printf("Error registering commands: %v\n", err)
-		os.Exit(1)
-	}
-
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -73,38 +66,24 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	// Register all commands with the centralized registry
-	registerCommands()
 }
 
 // registerCommands registers all commands with the centralized registry
 func registerCommands() {
-	// Register all top-level commands
-	commandsToRegister := []struct {
-		name string
-		cmd  *cobra.Command
-	}{
-		{"backup", backupCmd},
-		{"cleanup", cleanupCmd},
-		{"cron", cronCmd},
-		{"init", initCmd},
-		{"jobs", jobsCmd},
-		{"list", listCmd},
-		{"restore", restoreCmd},
-		{"s3", s3Cmd},
-		{"systemd", systemdCmd},
+	// Register all top-level commands with the registry
+	commands.RegisterCommand("backup", backupCmd)
+	commands.RegisterCommand("cleanup", cleanupCmd)
+	commands.RegisterCommand("cron", cronCmd)
+	commands.RegisterCommand("daemon", daemonCmd)
+	commands.RegisterCommand("init", initCmd)
+	commands.RegisterCommand("jobs", jobsCmd)
+	commands.RegisterCommand("list", listCmd)
+	commands.RegisterCommand("restore", restoreCmd)
+	commands.RegisterCommand("s3", s3Cmd)
+	commands.RegisterCommand("systemd", systemdCmd)
+	commands.RegisterCommand("update", updateCmd)
+	commands.RegisterCommand("version", versionCmd)
 
-		{"update", updateCmd},
-		{"version", versionCmd},
-	}
-
-	for _, cmdInfo := range commandsToRegister {
-		// Check if command is already registered before trying to register
-		if _, exists := commands.GetCommand(cmdInfo.name); !exists {
-			if err := commands.RegisterCommand(cmdInfo.name, cmdInfo.cmd); err != nil {
-				fmt.Printf("Warning: Failed to register command '%s': %v\n", cmdInfo.name, err)
-			}
-		}
-	}
+	// Register all commands with the root command
+	commands.RegisterAllWithRoot(rootCmd)
 }

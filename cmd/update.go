@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,9 @@ func init() {
 	updateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false, "show what would be updated without making changes")
 	updateCmd.Flags().BoolVarP(&updateForce, "force", "f", false, "force update even if already on latest version")
 	updateCmd.Flags().BoolVar(&updateUser, "user", false, "install to user directory instead of system location")
+
+	// Register with command registry
+	commands.RegisterCommand("update", updateCmd)
 }
 
 func runUpdate(cmd *cobra.Command, args []string) {

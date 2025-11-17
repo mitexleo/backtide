@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/mitexleo/backtide/internal/backup"
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +37,9 @@ Examples:
 func init() {
 	backupCmd.Flags().StringVarP(&backupJobName, "job", "j", "", "run specific backup job by name")
 	backupCmd.Flags().BoolVarP(&backupAll, "all", "a", false, "run all enabled backup jobs")
+
+	// Register with command registry
+	commands.RegisterCommand("backup", backupCmd)
 }
 
 func runBackup(cmd *cobra.Command, args []string) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mitexleo/backtide/internal/backup"
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -41,6 +42,9 @@ func init() {
 	listCmd.Flags().BoolVar(&listBuckets, "buckets", false, "list S3 bucket configurations")
 	listCmd.Flags().BoolVar(&listBackups, "backups", false, "list available backups")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "list all information")
+
+	// Register with command registry
+	commands.RegisterCommand("list", listCmd)
 }
 
 func runList(cmd *cobra.Command, args []string) {

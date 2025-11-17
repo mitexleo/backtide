@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
@@ -30,6 +31,9 @@ Use this command once during initial setup.`,
 
 func init() {
 	initCmd.Flags().BoolVar(&initForce, "force", false, "overwrite existing configuration")
+
+	// Register with command registry
+	commands.RegisterCommand("init", initCmd)
 }
 
 func runInit(cmd *cobra.Command, args []string) {
