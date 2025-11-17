@@ -89,9 +89,9 @@ func runInit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Automatically set up systemd scheduling if running as root
+	// Automatically set up systemd daemon if running as root
 	if os.Geteuid() == 0 {
-		fmt.Println("\n⏰ Setting up automated backup scheduling...")
+		fmt.Println("\n⏰ Setting up scheduling daemon...")
 
 		// Create systemd service manager
 		manager := systemd.NewServiceManager("backtide", "", configPath, "root")
@@ -101,18 +101,18 @@ func runInit(cmd *cobra.Command, args []string) {
 		if err := os.MkdirAll(systemdDir, 0755); err != nil {
 			fmt.Printf("  ⚠️  Warning: Could not create systemd directory: %v\n", err)
 		} else {
-			// Create service files with daily schedule
-			if err := manager.UpdateServiceFiles("daily"); err != nil {
-				fmt.Printf("  ⚠️  Warning: Could not set up automated backups: %v\n", err)
+			// Create service files for daemon
+			if err := manager.UpdateServiceFiles(""); err != nil {
+				fmt.Printf("  ⚠️  Warning: Could not set up scheduling daemon: %v\n", err)
 			} else {
-				// Enable and start timer
-				if err := manager.EnableTimer(); err != nil {
-					fmt.Printf("  ⚠️  Warning: Could not enable automated backups: %v\n", err)
+				// Enable and start service
+				if err := manager.EnableService(); err != nil {
+					fmt.Printf("  ⚠️  Warning: Could not enable daemon: %v\n", err)
 				} else if err := manager.StartTimer(); err != nil {
-					fmt.Printf("  ⚠️  Warning: Could not start automated backups: %v\n", err)
+					fmt.Printf("  ⚠️  Warning: Could not start daemon: %v\n", err)
 				} else {
-					fmt.Println("  ✅ Automated backups enabled!")
-					fmt.Println("     Backups will run daily at a random time")
+					fmt.Println("  ✅ Scheduling daemon enabled!")
+					fmt.Println("     Daemon will manage ALL backup job schedules internally")
 				}
 			}
 		}

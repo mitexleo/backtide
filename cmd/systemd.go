@@ -17,36 +17,37 @@ var (
 // systemdCmd represents the systemd command
 var systemdCmd = &cobra.Command{
 	Use:   "systemd",
-	Short: "Manage automated backup scheduling",
-	Long: `Manage automated backup scheduling with systemd.
+	Short: "Manage the Backtide scheduling daemon",
+	Long: `Manage the Backtide scheduling daemon with systemd.
 
-This command automatically sets up and manages systemd services
-for running backups on a daily schedule.`,
+This command sets up and manages the Backtide daemon that runs
+continuously and handles ALL backup job scheduling internally.`,
 }
 
 // systemdInstallCmd represents the systemd install command
 var systemdInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Enable automated daily backups",
-	Long: `Enable automated daily backups with systemd.
+	Short: "Enable the scheduling daemon",
+	Long: `Enable the Backtide scheduling daemon.
 
-This command automatically sets up systemd to run backups daily.`,
+This command sets up the Backtide daemon that runs continuously
+and manages ALL backup job schedules internally.`,
 	Run: runSystemdInstall,
 }
 
 // systemdUninstallCmd represents the systemd uninstall command
 var systemdUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Disable automated backups",
-	Long:  `Disable automated backups and remove systemd scheduling.`,
+	Short: "Disable the scheduling daemon",
+	Long:  `Disable the Backtide scheduling daemon and remove systemd service.`,
 	Run:   runSystemdUninstall,
 }
 
 // systemdStatusCmd represents the systemd status command
 var systemdStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check backup schedule status",
-	Long:  `Check the status of automated backup scheduling.`,
+	Short: "Check daemon status",
+	Long:  `Check the status of the Backtide scheduling daemon.`,
 	Run:   runSystemdStatus,
 }
 
@@ -58,7 +59,7 @@ func init() {
 }
 
 func runSystemdInstall(cmd *cobra.Command, args []string) {
-	fmt.Println("Enabling automated daily backups...")
+	fmt.Println("Enabling Backtide scheduling daemon...")
 
 	// Check if running as root
 	if os.Geteuid() != 0 {
@@ -78,30 +79,30 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 	}
 
 	// Create service files with daily schedule
-	if err := manager.UpdateServiceFiles("daily"); err != nil {
-		fmt.Printf("Error setting up automated backups: %v\n", err)
+	if err := manager.UpdateServiceFiles(""); err != nil {
+		fmt.Printf("Error setting up scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Enable and start timer
 	if err := manager.EnableTimer(); err != nil {
-		fmt.Printf("Error enabling automated backups: %v\n", err)
+		fmt.Printf("Error enabling scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := manager.StartTimer(); err != nil {
-		fmt.Printf("Error starting automated backups: %v\n", err)
+		fmt.Printf("Error starting scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Automated backups enabled!\n")
-	fmt.Println("Backups will run daily at a random time")
+	fmt.Printf("✅ Scheduling daemon enabled!\n")
+	fmt.Println("Daemon will manage ALL backup job schedules internally")
 	fmt.Println("\nTo check status: backtide systemd status")
 	fmt.Println("To view logs: journalctl -u backtide.service")
 }
 
 func runSystemdUninstall(cmd *cobra.Command, args []string) {
-	fmt.Println("Disabling automated backups...")
+	fmt.Println("Disabling scheduling daemon...")
 
 	// Check if running as root
 	if os.Geteuid() != 0 {
@@ -115,11 +116,11 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 
 	// Stop and disable timer
 	if err := manager.StopTimer(); err != nil {
-		fmt.Printf("Warning: Failed to stop automated backups: %v\n", err)
+		fmt.Printf("Warning: Failed to stop scheduling daemon: %v\n", err)
 	}
 
 	if err := manager.DisableTimer(); err != nil {
-		fmt.Printf("Warning: Failed to disable automated backups: %v\n", err)
+		fmt.Printf("Warning: Failed to disable scheduling daemon: %v\n", err)
 	}
 
 	// Remove service and timer files
@@ -140,11 +141,11 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("✅ Automated backups disabled!")
+	fmt.Println("✅ Scheduling daemon disabled!")
 }
 
 func runSystemdStatus(cmd *cobra.Command, args []string) {
-	fmt.Println("Checking backup schedule status...")
+	fmt.Println("Checking daemon status...")
 
 	// Create systemd service manager
 	manager := systemd.NewServiceManager("backtide", "", "", "")
@@ -152,12 +153,12 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 	// Get service status
 	status, err := manager.GetServiceStatus()
 	if err != nil {
-		fmt.Printf("Error checking backup schedule: %v\n", err)
+		fmt.Printf("Error checking daemon status: %v\n", err)
 		return
 	}
 
 	if status.IsEnabled {
-		fmt.Printf("✅ Automated backups: ENABLED\n")
+		fmt.Printf("✅ Scheduling daemon: ENABLED\n")
 		if status.IsRunning {
 			fmt.Printf("🟢 Status: ACTIVE (running)\n")
 		} else if status.IsActive {
@@ -165,9 +166,9 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 		} else {
 			fmt.Printf("🔴 Status: INACTIVE\n")
 		}
-		fmt.Printf("📅 Schedule: Daily at random time\n")
+		fmt.Printf("📅 Internal scheduling: ALL backup jobs\n")
 	} else {
-		fmt.Printf("❌ Automated backups: DISABLED\n")
+		fmt.Printf("❌ Scheduling daemon: DISABLED\n")
 		fmt.Printf("💡 Run 'sudo backtide systemd install' to enable\n")
 	}
 }
