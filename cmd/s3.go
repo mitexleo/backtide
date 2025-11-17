@@ -444,9 +444,7 @@ func printBucketConfig(bucket config.BucketConfig, usageCount int) {
 
 func configureBucketForAdd() config.BucketConfig {
 	reader := bufio.NewReader(os.Stdin)
-	bucket := config.BucketConfig{
-		MountPoint: "/mnt/s3backup",
-	}
+	bucket := config.BucketConfig{}
 
 	// Generate a unique ID
 	bucket.ID = generateBucketID()
@@ -459,100 +457,39 @@ func configureBucketForAdd() config.BucketConfig {
 	desc, _ := reader.ReadString('\n')
 	bucket.Description = strings.TrimSpace(desc)
 
-	fmt.Println("\nS3 Provider Options:")
-	fmt.Println("1. AWS S3")
-	fmt.Println("2. Backblaze B2")
-	fmt.Println("3. Wasabi")
-	fmt.Println("4. DigitalOcean Spaces")
-	fmt.Println("5. MinIO")
-	fmt.Println("6. Other S3-compatible provider")
-	fmt.Print("Choose provider (1-6): ")
-
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(choice)
-
-	var providerName string
-	var defaultEndpoint string
-	var recommendedPathStyle bool
-
-	switch choice {
-	case "1":
-		providerName = "AWS S3"
-		recommendedPathStyle = false
-		fmt.Print("AWS Region (e.g., us-east-1): ")
-		region, _ := reader.ReadString('\n')
-		bucket.Region = strings.TrimSpace(region)
-
-	case "2":
-		providerName = "Backblaze B2"
-		defaultEndpoint = "https://s3.us-west-002.backblazeb2.com"
-		recommendedPathStyle = true
-		bucket.Region = ""
-
-	case "3":
-		providerName = "Wasabi"
-		defaultEndpoint = "https://s3.wasabisys.com"
-		recommendedPathStyle = false
-		fmt.Print("Wasabi Region (e.g., us-east-1): ")
-		region, _ := reader.ReadString('\n')
-		bucket.Region = strings.TrimSpace(region)
-	case "4":
-		providerName = "DigitalOcean Spaces"
-		defaultEndpoint = "https://nyc3.digitaloceanspaces.com"
-		recommendedPathStyle = false
-		fmt.Print("DO Region (e.g., nyc3): ")
-		region, _ := reader.ReadString('\n')
-		bucket.Region = strings.TrimSpace(region)
-	case "5":
-		providerName = "MinIO"
-		defaultEndpoint = "http://localhost:9000"
-		recommendedPathStyle = true
-		bucket.Region = ""
-
-	case "6":
-		providerName = "Other S3-compatible"
-		recommendedPathStyle = false
-		fmt.Print("Endpoint URL (e.g., https://s3.example.com): ")
-		endpoint, _ := reader.ReadString('\n')
-		defaultEndpoint = strings.TrimSpace(endpoint)
-	default:
-		fmt.Println("Invalid choice, using AWS S3 defaults")
-		providerName = "AWS S3"
-		recommendedPathStyle = false
-	}
-
-	bucket.Provider = providerName
-	fmt.Printf("\nConfiguring %s...\n", providerName)
+	// Provider name
+	fmt.Print("Provider name (e.g., AWS S3, Backblaze B2, MinIO): ")
+	provider, _ := reader.ReadString('\n')
+	bucket.Provider = strings.TrimSpace(provider)
 
 	// Bucket name
 	fmt.Print("S3 Bucket name: ")
 	s3Bucket, _ := reader.ReadString('\n')
 	bucket.Bucket = strings.TrimSpace(s3Bucket)
 
-	// Endpoint
-	if defaultEndpoint != "" {
-		fmt.Printf("Endpoint [%s]: ", defaultEndpoint)
-		endpoint, _ := reader.ReadString('\n')
-		endpoint = strings.TrimSpace(endpoint)
-		if endpoint == "" {
-			bucket.Endpoint = defaultEndpoint
-		} else {
-			bucket.Endpoint = endpoint
-		}
-	} else {
-		fmt.Print("Endpoint (leave empty for AWS default): ")
-		endpoint, _ := reader.ReadString('\n')
-		bucket.Endpoint = strings.TrimSpace(endpoint)
-	}
+	// Region
+	fmt.Print("Region (leave empty if not applicable): ")
+	region, _ := reader.ReadString('\n')
+	bucket.Region = strings.TrimSpace(region)
 
 	// Path style
-	fmt.Printf("Use path-style endpoints? (recommended: %v) (y/N): ", recommendedPathStyle)
-	pathStyle, _ := reader.ReadString('\n')
-	if strings.ToLower(strings.TrimSpace(pathStyle)) == "y" {
+	fmt.Print("Use path-style endpoints? (y/N): ")
+	pathStyleInput, _ := reader.ReadString('\n')
+
+	// Endpoint
+	fmt.Print("Endpoint URL (leave empty for AWS default): ")
+	endpointInput, _ := reader.ReadString('\n')
+	bucket.Endpoint = strings.TrimSpace(endpointInput)
+	if strings.ToLower(strings.TrimSpace(pathStyleInput)) == "y" {
 		bucket.UsePathStyle = true
 	} else {
 		bucket.UsePathStyle = false
 	}
+
+	// Mount point
+	fmt.Print("Mount point (e.g., /mnt/s3backup): ")
+	mountPoint, _ := reader.ReadString('\n')
+	bucket.MountPoint = strings.TrimSpace(mountPoint)
 
 	// Access key
 	fmt.Print("Access Key: ")
@@ -564,15 +501,7 @@ func configureBucketForAdd() config.BucketConfig {
 	secretKey, _ := reader.ReadString('\n')
 	bucket.SecretKey = strings.TrimSpace(secretKey)
 
-	// Mount point
-	fmt.Printf("Mount point [%s]: ", bucket.MountPoint)
-	mountPoint, _ := reader.ReadString('\n')
-	mountPoint = strings.TrimSpace(mountPoint)
-	if mountPoint != "" {
-		bucket.MountPoint = mountPoint
-	}
-
-	fmt.Printf("✅ S3 bucket configuration for %s completed!\n", providerName)
+	fmt.Printf("✅ S3 bucket configuration for %s completed!\n", bucket.Provider)
 
 	return bucket
 }
