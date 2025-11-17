@@ -241,6 +241,49 @@ func FindConfigFile() string {
 	return ""
 }
 
+// SaveBackupMetadata saves backup metadata to a file
+func SaveBackupMetadata(metadata *BackupMetadata, filePath string) error {
+	if filePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+
+	// Ensure the directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create metadata directory: %w", err)
+	}
+
+	data, err := toml.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadBackupMetadata loads backup metadata from a file
+func LoadBackupMetadata(filePath string) (*BackupMetadata, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path cannot be empty")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata file: %w", err)
+	}
+
+	var metadata BackupMetadata
+	if err := toml.Unmarshal(data, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse metadata file: %w", err)
+	}
+
+	return &metadata, nil
+}
+
 // CreateDefaultConfig creates a default configuration file
 func CreateDefaultConfig(configPath string) error {
 	defaultConfig := DefaultConfig()
