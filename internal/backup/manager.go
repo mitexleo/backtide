@@ -350,7 +350,10 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 func (bm *BackupManager) ListBackups() ([]config.BackupMetadata, error) {
 	var backups []config.BackupMetadata
 
-	// Check if backup directory exists
+	// Check if backup directory exists or if backup path is empty
+	if bm.backupPath == "" {
+		return backups, nil
+	}
 	if _, err := os.Stat(bm.backupPath); os.IsNotExist(err) {
 		return backups, nil
 	}

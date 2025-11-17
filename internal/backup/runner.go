@@ -209,10 +209,56 @@ func (br *BackupRunner) RunJobCleanup(jobName string) error {
 
 // ListBackups returns a list of all available backups
 func (br *BackupRunner) ListBackups() ([]config.BackupMetadata, error) {
-	// For now, return an empty list
-	// This will be implemented properly in future versions
-	fmt.Println("Listing backups functionality will be implemented in future versions")
-	return []config.BackupMetadata{}, nil
+	var allBackups []config.BackupMetadata
+	processedPaths := make(map[string]bool)
+
+	// Collect backups from all jobs
+	for _, job := range br.config.Jobs {
+		if !job.Enabled {
+			continue
+		}
+
+		// Find the bucket configuration for this job
+		var bucketConfig *config.BucketConfig
+		for _, bucket := range br.config.Buckets {
+			if bucket.ID == job.BucketID {
+				bucketConfig = &bucket
+				break
+			}
+		}
+
+		// Determine backup path for this job
+		backupPath := br.backupPath
+		if job.Storage.S3 && bucketConfig != nil {
+			backupPath = bucketConfig.MountPoint
+		}
+
+		// Skip if we've already processed this path
+		if processedPaths[backupPath] {
+			continue
+		}
+		processedPaths[backupPath] = true
+
+		// Create job-specific backup config
+		jobBackupConfig := config.BackupConfig{
+			Jobs:       []config.BackupJob{job},
+			Buckets:    br.config.Buckets,
+			BackupPath: backupPath,
+			TempPath:   br.config.TempPath,
+		}
+
+		// List backups from this path
+		backupManager := NewBackupManager(jobBackupConfig)
+		backups, err := backupManager.ListBackups()
+		if err != nil {
+			fmt.Printf("Warning: Failed to list backups from %s: %v\n", backupPath, err)
+			continue
+		}
+
+		allBackups = append(allBackups, backups...)
+	}
+
+	return allBackups, nil
 }
 
 // findJob finds a job by name

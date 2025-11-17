@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mitexleo/backtide/internal/backup"
 	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/spf13/cobra"
@@ -168,11 +169,16 @@ func (js *JobScheduler) isJobDue(job config.BackupJob, now time.Time) bool {
 func (js *JobScheduler) runBackupJob(job config.BackupJob) {
 	fmt.Printf("   📦 Starting backup: %s\n", job.Name)
 
-	// TODO: Replace with actual backup execution
-	// For now, simulate backup execution
-	time.Sleep(2 * time.Second) // Simulate backup time
+	// Run actual backup using the backup runner
+	backupRunner := backup.NewBackupRunner(*js.config)
+	metadata, err := backupRunner.RunJob(job.Name)
+	if err != nil {
+		fmt.Printf("   ❌ Backup failed for job %s: %v\n", job.Name, err)
+		return
+	}
 
-	fmt.Printf("   ✅ Completed backup: %s\n", job.Name)
+	fmt.Printf("   ✅ Completed backup: %s (ID: %s)\n", job.Name, metadata.ID)
+	fmt.Printf("   📊 Backup size: %d bytes\n", metadata.TotalSize)
 
 	// Log the execution
 	fmt.Printf("   📝 Job %s completed at %s\n", job.Name, time.Now().Format("15:04:05"))
