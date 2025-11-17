@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/mitexleo/backtide/internal/config"
+	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -88,6 +89,38 @@ func runInit(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Automatically set up systemd scheduling if running as root
+	if os.Geteuid() == 0 {
+		fmt.Println("\n⏰ Setting up automated backup scheduling...")
+
+		// Create systemd service manager
+		manager := systemd.NewServiceManager("backtide", "", configPath, "root")
+
+		// Create systemd service directory if it doesn't exist
+		systemdDir := "/etc/systemd/system"
+		if err := os.MkdirAll(systemdDir, 0755); err != nil {
+			fmt.Printf("  ⚠️  Warning: Could not create systemd directory: %v\n", err)
+		} else {
+			// Create service files with daily schedule
+			if err := manager.UpdateServiceFiles("daily"); err != nil {
+				fmt.Printf("  ⚠️  Warning: Could not set up automated backups: %v\n", err)
+			} else {
+				// Enable and start timer
+				if err := manager.EnableTimer(); err != nil {
+					fmt.Printf("  ⚠️  Warning: Could not enable automated backups: %v\n", err)
+				} else if err := manager.StartTimer(); err != nil {
+					fmt.Printf("  ⚠️  Warning: Could not start automated backups: %v\n", err)
+				} else {
+					fmt.Println("  ✅ Automated backups enabled!")
+					fmt.Println("     Backups will run daily at a random time")
+				}
+			}
+		}
+	} else {
+		fmt.Println("\n💡 To enable automated backups, run:")
+		fmt.Println("   sudo backtide systemd install")
+	}
+
 	fmt.Printf("\n✅ Configuration created successfully: %s\n", configPath)
 	fmt.Println("\nNext steps:")
 	fmt.Println("1. Edit the configuration file with your specific settings")
@@ -95,7 +128,9 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println("3. Add S3 buckets: backtide s3 add")
 	fmt.Println("4. Configure directories to backup")
 	fmt.Println("5. Test the backup: backtide backup --dry-run")
-	fmt.Println("6. Set up automated backups: backtide systemd install")
+	if os.Geteuid() != 0 {
+		fmt.Println("6. Set up automated backups: sudo backtide systemd install")
+	}
 	fmt.Println("\nExample commands:")
 	fmt.Println("  backtide jobs add                  # Add backup job")
 	fmt.Println("  backtide s3 add                    # Add S3 bucket")

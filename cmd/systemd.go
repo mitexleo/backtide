@@ -3,9 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
-	"github.com/mitexleo/backtide/internal/config"
 	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -40,8 +38,8 @@ This command automatically sets up systemd to run backups daily.`,
 var systemdUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Disable automated backups",
-	Long: `Disable automated backups and remove systemd scheduling.`,
-	Run: runSystemdUninstall,
+	Long:  `Disable automated backups and remove systemd scheduling.`,
+	Run:   runSystemdUninstall,
 }
 
 // systemdStatusCmd represents the systemd status command
@@ -103,24 +101,25 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 }
 
 func runSystemdUninstall(cmd *cobra.Command, args []string) {
-	fmt.Println("Uninstalling systemd service...")
+	fmt.Println("Disabling automated backups...")
 
 	// Check if running as root
 	if os.Geteuid() != 0 {
 		fmt.Println("Error: This command requires root privileges")
+		fmt.Println("Try: sudo backtide systemd uninstall")
 		os.Exit(1)
 	}
 
-	// Create systemd service manager (binary path doesn't matter for uninstall)
-	manager := systemd.NewServiceManager(systemdServiceName, "", "", "")
+	// Create systemd service manager
+	manager := systemd.NewServiceManager("backtide", "", "", "")
 
 	// Stop and disable timer
 	if err := manager.StopTimer(); err != nil {
-		fmt.Printf("Warning: Failed to stop timer: %v\n", err)
+		fmt.Printf("Warning: Failed to stop automated backups: %v\n", err)
 	}
 
 	if err := manager.DisableTimer(); err != nil {
-		fmt.Printf("Warning: Failed to disable timer: %v\n", err)
+		fmt.Printf("Warning: Failed to disable automated backups: %v\n", err)
 	}
 
 	// Remove service and timer files
@@ -141,36 +140,35 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("Systemd service uninstalled successfully!")
+	fmt.Println("✅ Automated backups disabled!")
 }
 
 func runSystemdStatus(cmd *cobra.Command, args []string) {
-	fmt.Println("Checking systemd service status...")
+	fmt.Println("Checking backup schedule status...")
 
-	// Check timer status
-	cmdTimer := exec.Command("systemctl", "status", systemdServiceName+".timer")
-	if output, err := cmdTimer.CombinedOutput(); err != nil {
-		fmt.Printf("Timer status: %s\n", string(output))
-	} else {
-		fmt.Printf("Timer status: %s\n", string(output))
+	// Create systemd service manager
+	manager := systemd.NewServiceManager("backtide", "", "", "")
+
+	// Get service status
+	status, err := manager.GetServiceStatus()
+	if err != nil {
+		fmt.Printf("Error checking backup schedule: %v\n", err)
+		return
 	}
 
-	fmt.Println()
-
-	// Check service status (last run)
-	cmdService := exec.Command("systemctl", "status", systemdServiceName+".service")
-	if output, err := cmdService.CombinedOutput(); err != nil {
-		fmt.Printf("Service status: %s\n", string(output))
+	if status.IsEnabled {
+		fmt.Printf("✅ Automated backups: ENABLED\n")
+		if status.IsRunning {
+			fmt.Printf("🟢 Status: ACTIVE (running)\n")
+		} else if status.IsActive {
+			fmt.Printf("🟡 Status: ACTIVE (not running)\n")
+		} else {
+			fmt.Printf("🔴 Status: INACTIVE\n")
+		}
+		fmt.Printf("📅 Schedule: Daily at random time\n")
 	} else {
-		fmt.Printf("Service status: %s\n", string(output))
-	}
-
-	fmt.Println("\nRecent logs:")
-	cmdLogs := exec.Command("journalctl", "-u", systemdServiceName+".service", "--since", "1 hour ago", "-n", "10")
-	if output, err := cmdLogs.CombinedOutput(); err != nil {
-		fmt.Printf("Error getting logs: %v\n", err)
-	} else {
-		fmt.Printf("%s\n", string(output))
+		fmt.Printf("❌ Automated backups: DISABLED\n")
+		fmt.Printf("💡 Run 'sudo backtide systemd install' to enable\n")
 	}
 }
 

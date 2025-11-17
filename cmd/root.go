@@ -94,7 +94,7 @@ func registerCommands() {
 		{"restore", restoreCmd},
 		{"s3", s3Cmd},
 		{"systemd", systemdCmd},
-		{"systemd-jobs", systemdJobsCmd},
+
 		{"update", updateCmd},
 		{"version", versionCmd},
 	}

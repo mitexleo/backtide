@@ -123,14 +123,12 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-Type=simple
+Type=oneshot
 User=` + sm.User + `
-ExecStart=backtide daemon
+ExecStart=backtide backup
 StandardOutput=journal
 StandardError=journal
-Restart=always
-RestartSec=10
-TimeoutStopSec=30
+TimeoutStopSec=300
 
 [Install]
 WantedBy=multi-user.target
