@@ -312,6 +312,16 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 	// Save bucket name before removal for success message
 	bucketName := bucketToRemove.Name
 
+	// Unmount the bucket first
+	fmt.Println("\n🔽 Unmounting bucket...")
+	s3fsManager := s3fs.NewS3FSManager(*bucketToRemove)
+	if err := s3fsManager.UnmountS3FS(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not unmount bucket: %v\n", err)
+		fmt.Println("   You may need to unmount manually with: fusermount -u " + bucketToRemove.MountPoint)
+	} else {
+		fmt.Println("✅ Bucket unmounted successfully")
+	}
+
 	// Remove the bucket
 	cfg.Buckets = append(cfg.Buckets[:bucketIndex], cfg.Buckets[bucketIndex+1:]...)
 
@@ -332,7 +342,6 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 
 	// Remove from fstab (requires sudo)
 	fmt.Println("📝 Removing from /etc/fstab...")
-	s3fsManager := s3fs.NewS3FSManager(*bucketToRemove)
 	if err := s3fsManager.RemoveFromFstab(); err != nil {
 		fmt.Printf("⚠️  Warning: Could not remove from /etc/fstab: %v\n", err)
 		fmt.Println("   You may need to run with sudo for system configuration")
@@ -683,13 +692,9 @@ func testBucket(bucket config.BucketConfig) {
 		fmt.Println("✅ Bucket unmounted successfully")
 	}
 
-	// Clean up test credentials
-	fmt.Println("6. Cleaning up test credentials...")
-	if err := cleanupBucketCredentials(bucket); err != nil {
-		fmt.Printf("⚠️  Warning: Could not clean up test credentials: %v\n", err)
-	} else {
-		fmt.Println("✅ Test credentials cleaned up")
-	}
+	// Note: Production credentials are preserved for ongoing use
+	fmt.Println("6. Preserving production credentials...")
+	fmt.Println("✅ Production credentials preserved for ongoing use")
 
 	fmt.Println("\n🎉 All tests passed! S3 bucket connectivity is working correctly.")
 	fmt.Printf("📊 Summary: %s bucket '%s' is accessible and functional\n", bucket.Provider, bucket.Bucket)
