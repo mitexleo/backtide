@@ -193,15 +193,8 @@ func runS3Add(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create mount point directory (requires sudo for system directories)
-	fmt.Printf("\n📁 Creating mount point: %s\n", newBucket.MountPoint)
-	if err := os.MkdirAll(newBucket.MountPoint, 0755); err != nil {
-		fmt.Printf("⚠️  Warning: Could not create mount point directory: %v\n", err)
-		fmt.Println("   You may need to run with sudo for system directories")
-		fmt.Printf("   Try: sudo mkdir -p %s\n", newBucket.MountPoint)
-	} else {
-		fmt.Printf("✅ Mount point created: %s\n", newBucket.MountPoint)
-	}
+	// Note: Mount point directory will be created by S3FS setup
+	fmt.Printf("\n📁 Mount point: %s\n", newBucket.MountPoint)
 
 	// Setup S3FS (create credentials file and mount point)
 	fmt.Println("🔧 Setting up S3FS configuration...")
