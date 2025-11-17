@@ -101,7 +101,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 User=` + sm.User + `
-ExecStart=` + sm.BinaryPath + ` backup --config ` + sm.ConfigPath + `
+ExecStart=backtide backup
 StandardOutput=journal
 StandardError=journal
 TimeoutStopSec=300

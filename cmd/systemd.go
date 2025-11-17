@@ -88,15 +88,8 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Get absolute path to backtide binary
-	binaryPath, err := os.Executable()
-	if err != nil {
-		fmt.Printf("Error getting binary path: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Create systemd service manager
-	manager := systemd.NewServiceManager(systemdServiceName, binaryPath, configPath, systemdUser)
+	manager := systemd.NewServiceManager(systemdServiceName, "", configPath, systemdUser)
 
 	// Create systemd service directory if it doesn't exist
 	systemdDir := "/etc/systemd/system"
@@ -105,7 +98,7 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Update service files with current binary path
+	// Create service files
 	if err := manager.UpdateServiceFiles(systemdSchedule); err != nil {
 		fmt.Printf("Error creating systemd service files: %v\n", err)
 		os.Exit(1)
@@ -205,7 +198,7 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 
 // generateServiceFile is kept for backward compatibility but now uses the systemd manager internally
 func generateServiceFile(binaryPath, configPath, user string) string {
-	manager := systemd.NewServiceManager("backtide", binaryPath, configPath, user)
+	manager := systemd.NewServiceManager("backtide", "", configPath, user)
 	return manager.GenerateServiceFile()
 }
 

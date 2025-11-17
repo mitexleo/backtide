@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -172,14 +171,6 @@ func runUpdate(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Printf("✅ Successfully updated Backtide from %s to %s!\n", currentVersion, latestRelease.Version)
-
-	// Check if systemd services need to be updated
-	if err := updateSystemdServices(currentExec); err != nil {
-		fmt.Printf("⚠️  Warning: Could not update systemd services: %v\n", err)
-		fmt.Println("   You may need to manually update systemd service files")
-	} else {
-		fmt.Println("✅ Systemd services updated successfully")
-	}
 
 	fmt.Println("💡 The update is complete. You may need to restart your shell or terminal session.")
 	fmt.Println("   Run 'backtide version' to verify the new version is active.")
@@ -523,62 +514,6 @@ func copyFile(src, dst string) error {
 	// Preserve executable permissions
 	if err := os.Chmod(dst, 0755); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-// updateSystemdServices checks and updates systemd services after binary update
-func updateSystemdServices(newBinaryPath string) error {
-	// Only attempt systemd updates if running as root
-	if os.Geteuid() != 0 {
-		return nil // Skip systemd updates for non-root users
-	}
-
-	// Common systemd service names to check
-	serviceNames := []string{"backtide", "backtide-backup"}
-
-	for _, serviceName := range serviceNames {
-		manager := systemd.NewServiceManager(serviceName, newBinaryPath, "/etc/backtide/config.toml", "root")
-
-		// Check if service is installed
-		isInstalled, err := manager.IsServiceInstalled()
-		if err != nil {
-			// Log but continue with other services
-			fmt.Printf("  ⚠️  Could not check service %s: %v\n", serviceName, err)
-			continue
-		}
-
-		if !isInstalled {
-			continue // Service not installed, skip
-		}
-
-		// Get service status to check if it's running
-		status, err := manager.GetServiceStatus()
-		if err != nil {
-			fmt.Printf("  ⚠️  Could not get status for service %s: %v\n", serviceName, err)
-			continue
-		}
-
-		// Update service files with new binary path
-		fmt.Printf("  🔄 Updating systemd service: %s\n", serviceName)
-		if err := manager.UpdateServiceFiles("daily"); err != nil {
-			fmt.Printf("  ⚠️  Could not update service %s: %v\n", serviceName, err)
-			continue
-		}
-
-		// If service was running, restart the timer
-		if status.IsActive {
-			fmt.Printf("  🔄 Restarting timer: %s.timer\n", serviceName)
-			if err := manager.StopTimer(); err != nil {
-				fmt.Printf("  ⚠️  Could not stop timer %s: %v\n", serviceName, err)
-			}
-			if err := manager.StartTimer(); err != nil {
-				fmt.Printf("  ⚠️  Could not start timer %s: %v\n", serviceName, err)
-			}
-		}
-
-		fmt.Printf("  ✅ Updated systemd service: %s\n", serviceName)
 	}
 
 	return nil

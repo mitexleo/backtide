@@ -97,7 +97,6 @@ func registerCommands() {
 		{"systemd-jobs", systemdJobsCmd},
 		{"update", updateCmd},
 		{"version", versionCmd},
-		{"commands", commandsCmd},
 	}
 
 	for _, cmdInfo := range commandsToRegister {
