@@ -19,106 +19,58 @@ var (
 // systemdCmd represents the systemd command
 var systemdCmd = &cobra.Command{
 	Use:   "systemd",
-	Short: "Manage systemd service for scheduled backups",
-	Long: `Manage systemd service and timer for scheduled backups.
+	Short: "Manage automated backup scheduling",
+	Long: `Manage automated backup scheduling with systemd.
 
-This command helps create and manage systemd services and timers
-for automated backup scheduling.`,
+This command automatically sets up and manages systemd services
+for running backups on a daily schedule.`,
 }
 
 // systemdInstallCmd represents the systemd install command
 var systemdInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install systemd service and timer",
-	Long: `Install systemd service and timer for automated backups.
+	Short: "Enable automated daily backups",
+	Long: `Enable automated daily backups with systemd.
 
-This command will:
-1. Create systemd service file
-2. Create systemd timer file
-3. Enable and start the timer
-4. Reload systemd daemon`,
+This command automatically sets up systemd to run backups daily.`,
 	Run: runSystemdInstall,
 }
 
 // systemdUninstallCmd represents the systemd uninstall command
 var systemdUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Uninstall systemd service and timer",
-	Long: `Uninstall systemd service and timer.
-
-This command will:
-1. Stop and disable the timer
-2. Remove systemd service and timer files
-3. Reload systemd daemon`,
+	Short: "Disable automated backups",
+	Long: `Disable automated backups and remove systemd scheduling.`,
 	Run: runSystemdUninstall,
 }
 
 // systemdStatusCmd represents the systemd status command
 var systemdStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show systemd service status",
-	Long:  `Show the current status of the backtide systemd service and timer.`,
+	Short: "Check backup schedule status",
+	Long:  `Check the status of automated backup scheduling.`,
 	Run:   runSystemdStatus,
 }
 
 func init() {
+	rootCmd.AddCommand(systemdCmd)
 	systemdCmd.AddCommand(systemdInstallCmd)
 	systemdCmd.AddCommand(systemdUninstallCmd)
 	systemdCmd.AddCommand(systemdStatusCmd)
-
-	systemdInstallCmd.Flags().StringVar(&systemdServiceName, "service-name", "backtide", "systemd service name")
-	systemdInstallCmd.Flags().StringVar(&systemdUser, "user", "root", "user to run the service as")
-	systemdInstallCmd.Flags().StringVar(&systemdSchedule, "schedule", "daily", "backup schedule (daily, weekly, monthly, or cron expression)")
 }
 
 func runSystemdInstall(cmd *cobra.Command, args []string) {
-	fmt.Println("Installing systemd service...")
+	fmt.Println("Enabling automated daily backups...")
 
 	// Check if running as root
 	if os.Geteuid() != 0 {
 		fmt.Println("Error: This command requires root privileges")
+		fmt.Println("Try: sudo backtide systemd install")
 		os.Exit(1)
 	}
 
-	// Load configuration to get config path
-	configPath := getConfigPath()
-	_, err := config.LoadConfig(configPath)
-	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create systemd service manager
-	manager := systemd.NewServiceManager(systemdServiceName, "", configPath, systemdUser)
-
-	// Check if service already exists
-	isInstalled, err := manager.IsServiceInstalled()
-	if err != nil {
-		fmt.Printf("Warning: Could not check existing service status: %v\n", err)
-	}
-
-	if isInstalled {
-		fmt.Printf("⚠️  Existing systemd service found: %s\n", systemdServiceName)
-
-		// Get current service status
-		status, err := manager.GetServiceStatus()
-		if err != nil {
-			fmt.Printf("Warning: Could not get service status: %v\n", err)
-		} else {
-			if status.IsActive {
-				fmt.Printf("⚠️  Service is currently active. Stopping timer...\n")
-				if err := manager.StopTimer(); err != nil {
-					fmt.Printf("Warning: Could not stop timer: %v\n", err)
-				} else {
-					fmt.Println("✅ Timer stopped successfully")
-				}
-			}
-		}
-
-		fmt.Println("🔄 Replacing existing service files...")
-	} else {
-		fmt.Println("📝 Creating new systemd service...")
-	}
+	// Create systemd service manager with default values
+	manager := systemd.NewServiceManager("backtide", "", "", "root")
 
 	// Create systemd service directory if it doesn't exist
 	systemdDir := "/etc/systemd/system"
@@ -127,29 +79,26 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create service files
-	if err := manager.UpdateServiceFiles(systemdSchedule); err != nil {
-		fmt.Printf("Error creating systemd service files: %v\n", err)
+	// Create service files with daily schedule
+	if err := manager.UpdateServiceFiles("daily"); err != nil {
+		fmt.Printf("Error setting up automated backups: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Enable and start timer
 	if err := manager.EnableTimer(); err != nil {
-		fmt.Printf("Error enabling timer: %v\n", err)
+		fmt.Printf("Error enabling automated backups: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := manager.StartTimer(); err != nil {
-		fmt.Printf("Error starting timer: %v\n", err)
+		fmt.Printf("Error starting automated backups: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ Systemd service installed successfully!\n")
-	fmt.Printf("Service: %s.service\n", systemdServiceName)
-	fmt.Printf("Timer: %s.timer\n", systemdServiceName)
-	fmt.Printf("Config: %s\n", configPath)
-	fmt.Printf("Schedule: %s\n", systemdSchedule)
-	fmt.Println("\nTo check status: systemctl status backtide.timer")
+	fmt.Printf("✅ Automated backups enabled!\n")
+	fmt.Println("Backups will run daily at a random time")
+	fmt.Println("\nTo check status: backtide systemd status")
 	fmt.Println("To view logs: journalctl -u backtide.service")
 }
 
