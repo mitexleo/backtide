@@ -2,24 +2,24 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/mitexleo/backtide)](https://github.com/mitexleo/backtide/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mitexleo/backtide)](https://golang.org)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL%203.0-blue.svg)](LICENSE)
 
 A powerful backup utility designed specifically for Docker-based applications, featuring S3FS integration, metadata preservation, and automated scheduling.
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [🚀 Quick Start](#-quick-start)
-- [✨ Features](#-features)
-- [📦 Installation](#-installation)
-- [⚙️ Configuration](#️-configuration)
-- [🔧 Usage](#-usage)
-- [🏗️ Architecture](#️-architecture)
-- [🔒 Security](#-security)
-- [🛠️ Development](#️-development)
-- [❓ Troubleshooting](#-troubleshooting)
-- [🤝 Contributing](#-contributing)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Security](#security)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Installation
 ```bash
@@ -49,9 +49,9 @@ backtide jobs add
 backtide backup
 ```
 
-## ✨ Features
+## Features
 
-### 🎯 Core Features
+### Core Features
 - **Multi-job backup system** - Configure multiple independent backup jobs
 - **Docker container management** - Automatic stop/start during backup
 - **S3FS integration** - Direct S3 bucket mounting for cloud storage
@@ -60,19 +60,19 @@ backtide backup
 - **Retention policies** - Automatic cleanup of old backups
 - **Cross-platform** - Linux, macOS, and Windows support
 
-### 🔄 Automation
+### Automation
 - **Systemd services** - Native Linux service management
 - **Cron integration** - Traditional scheduling support
 - **Smart scheduling** - Multiple job coordination
 - **Self-updating** - Automatic binary updates
 
-### ☁️ Cloud Storage
+### Cloud Storage
 - **Multiple S3 providers** - AWS, Backblaze B2, Wasabi, DigitalOcean, MinIO
 - **Path/Virtual host style** - Configurable endpoint styles
 - **Credential isolation** - Separate credentials per bucket
 - **Persistent mounts** - Automatic fstab configuration
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 - **Go 1.19+** (for building from source)
@@ -113,7 +113,7 @@ sudo mv backtide /usr/local/bin/
 sudo chmod +x /usr/local/bin/backtide
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### System Configuration Location
 Backtide uses a centralized system configuration in `/etc/backtide/`:
@@ -218,7 +218,7 @@ use_path_style = true  # Required for MinIO
 provider = "MinIO"
 ```
 
-## 🔧 Usage
+## Usage
 
 ### Backup Operations
 ```bash
@@ -293,7 +293,7 @@ backtide version
 sudo backtide init
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### System Design
 Backtide uses a modular architecture with clear separation of concerns:
@@ -330,7 +330,7 @@ Backtide uses a modular architecture with clear separation of concerns:
 5. **S3 upload** - Transfer to cloud storage (S3 mode)
 6. **Cleanup** - Remove temporary files, restart containers
 
-## 🔒 Security
+## Security
 
 ### Credential Management
 - **Isolated credentials** - Each bucket has separate credential files
@@ -351,7 +351,7 @@ Backtide uses a modular architecture with clear separation of concerns:
 3. **Monitor backup logs** for unauthorized access attempts
 4. **Secure configuration backups** of `/etc/backtide/`
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 ```
@@ -418,7 +418,7 @@ go test -cover ./...
 go test -tags=integration ./...
 ```
 
-## ❓ Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -484,7 +484,7 @@ journalctl -u backtide@job-name
 tail -f /var/log/backtide/backtide.log
 ```
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see our development guidelines:
 
@@ -531,6 +531,6 @@ When reporting issues, please include:
 
 ---
 
-**Backtide** - Reliable backups for Docker applications. Built with ❤️ using Go.
+**Backtide** - Reliable backups for Docker applications.
 
 For support, create an issue on [GitHub](https://github.com/mitexleo/backtide/issues).
