@@ -174,17 +174,28 @@ func ValidateConfig(config *BackupConfig) error {
 	return nil
 }
 
+// EnsureSystemDirectories creates necessary system directories for Backtide
+func EnsureSystemDirectories() error {
+	// Create /etc/backtide directory for configuration
+	if err := os.MkdirAll("/etc/backtide", 0755); err != nil {
+		return fmt.Errorf("failed to create configuration directory: %w", err)
+	}
+
+	// Create /etc/backtide/s3-credentials directory for credentials
+	credsDir := filepath.Join("/etc", "backtide", "s3-credentials")
+	if err := os.MkdirAll(credsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create credentials directory: %w", err)
+	}
+
+	return nil
+}
+
 // FindConfigFile searches for configuration file in common locations
 func FindConfigFile() string {
-	// Common configuration file locations
+	// System-wide configuration locations (preferred)
 	locations := []string{
 		"/etc/backtide/config.toml",
 		"/etc/backtide/backtide.toml",
-		"/usr/local/etc/backtide/config.toml",
-		"~/.config/backtide/config.toml",
-		"~/.backtide.toml",
-		"./backtide.toml",
-		"./config.toml",
 	}
 
 	for _, location := range locations {
@@ -196,6 +207,30 @@ func FindConfigFile() string {
 		}
 
 		if _, err := os.Stat(location); err == nil {
+			return location
+		}
+	}
+
+	// If no system configuration found, check for development locations
+	devLocations := []string{
+		"/usr/local/etc/backtide/config.toml",
+		"~/.config/backtide/config.toml",
+		"~/.backtide.toml",
+		"./backtide.toml",
+		"./config.toml",
+	}
+
+	for _, location := range devLocations {
+		// Expand ~ to home directory
+		if location[0] == '~' {
+			if home, err := os.UserHomeDir(); err == nil {
+				location = filepath.Join(home, location[1:])
+			}
+		}
+
+		if _, err := os.Stat(location); err == nil {
+			fmt.Printf("⚠️  Using development configuration: %s\n", location)
+			fmt.Println("💡 For production, use: /etc/backtide/config.toml")
 			return location
 		}
 	}

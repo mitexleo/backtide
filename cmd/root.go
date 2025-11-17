@@ -31,7 +31,7 @@ Features:
 - Systemd and cron integration
 
 Example usage:
-  backtide backup --config /etc/backtide/config.yaml
+  backtide backup --config /etc/backtide/config.toml
   backtide restore backup-2024-01-15-10-30-00
   backtide list
   backtide cleanup`,

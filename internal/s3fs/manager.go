@@ -96,23 +96,8 @@ func (sm *S3FSManager) SetupS3FS() error {
 		return fmt.Errorf("failed to create mount point directory: %w", err)
 	}
 
-	// Create credentials file in user-specific location, per bucket
-	// Try to get the original user's home directory, not root's when using sudo
-	homeDir := os.Getenv("SUDO_USER")
-	if homeDir == "" {
-		// Fall back to current user if not using sudo
-		homeDir = os.Getenv("HOME")
-	}
-	if homeDir == "" {
-		// Final fallback to UserHomeDir
-		var err error
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %w", err)
-		}
-	}
-
-	credsDir := filepath.Join(homeDir, ".config", "backtide", "s3-credentials")
+	// Create credentials file in system-wide location
+	credsDir := filepath.Join("/etc", "backtide", "s3-credentials")
 	if err := os.MkdirAll(credsDir, 0700); err != nil {
 		return fmt.Errorf("failed to create credentials directory: %w", err)
 	}
@@ -160,21 +145,7 @@ func (sm *S3FSManager) MountS3FS() error {
 	}
 
 	// Get credentials file path for this specific bucket
-	// Try to get the original user's home directory, not root's when using sudo
-	homeDir := os.Getenv("SUDO_USER")
-	if homeDir == "" {
-		// Fall back to current user if not using sudo
-		homeDir = os.Getenv("HOME")
-	}
-	if homeDir == "" {
-		// Final fallback to UserHomeDir
-		var err error
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %w", err)
-		}
-	}
-	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
+	credsFile := filepath.Join("/etc", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
 
 	// Build mount command
 	args := []string{
@@ -230,21 +201,7 @@ func (sm *S3FSManager) UnmountS3FS() error {
 // AddToFstab adds S3FS mount to /etc/fstab for persistence
 func (sm *S3FSManager) AddToFstab() error {
 	// Get credentials file path for fstab for this specific bucket
-	// Try to get the original user's home directory, not root's when using sudo
-	homeDir := os.Getenv("SUDO_USER")
-	if homeDir == "" {
-		// Fall back to current user if not using sudo
-		homeDir = os.Getenv("HOME")
-	}
-	if homeDir == "" {
-		// Final fallback to UserHomeDir
-		var err error
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %w", err)
-		}
-	}
-	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
+	credsFile := filepath.Join("/etc", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", sm.config.ID))
 
 	// Build fstab options
 	options := []string{

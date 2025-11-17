@@ -30,8 +30,8 @@ This command will:
 2. Set up necessary directories
 3. Provide guidance for next steps
 
-The configuration file will be created in the default location
-(~/.backtide.yaml) unless specified otherwise.`,
+The configuration file will be created in the system location
+(/etc/backtide/config.toml) unless specified otherwise.`,
 	Run: runInit,
 }
 
@@ -49,12 +49,8 @@ func runInit(cmd *cobra.Command, args []string) {
 	// Determine config file path
 	configPath := cfgFile
 	if configPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Printf("Error getting home directory: %v\n", err)
-			os.Exit(1)
-		}
-		configPath = filepath.Join(home, ".backtide.yaml")
+		// Use system configuration location by default
+		configPath = "/etc/backtide/config.toml"
 	}
 
 	// Check if config file already exists
@@ -105,14 +101,20 @@ func runInit(cmd *cobra.Command, args []string) {
 
 	}
 
-	// Save configuration
+	// Save configuration to system location
+	fmt.Printf("💾 Saving configuration to: %s\n", configPath)
 	if err := config.SaveConfig(defaultConfig, configPath); err != nil {
-		fmt.Printf("Error saving configuration: %v\n", err)
+		fmt.Printf("❌ Error saving configuration: %v\n", err)
+		fmt.Println("💡 You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide init")
 		os.Exit(1)
 	}
 
-	// Create necessary directories
+	// Create necessary system directories
+	fmt.Println("📁 Creating system directories...")
 	dirs := []string{
+		"/etc/backtide",
+		"/etc/backtide/s3-credentials",
 		"/var/lib/backtide",
 		"/var/log/backtide",
 		"/mnt/backup",
@@ -385,9 +387,12 @@ func configureBucketForJob(configPath string) string {
 	newBucket := configureBucketForAdd()
 	cfg.Buckets = append(cfg.Buckets, newBucket)
 
-	// Save configuration with new bucket
+	// Save configuration with new bucket to system location
+	fmt.Printf("💾 Saving configuration to: %s\n", configPath)
 	if err := config.SaveConfig(cfg, configPath); err != nil {
-		fmt.Printf("Error saving configuration: %v\n", err)
+		fmt.Printf("❌ Error saving configuration: %v\n", err)
+		fmt.Println("💡 You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide init")
 		os.Exit(1)
 	}
 

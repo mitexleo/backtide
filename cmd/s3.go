@@ -155,6 +155,14 @@ func runS3Add(cmd *cobra.Command, args []string) {
 		fmt.Println("✅ s3fs is already installed")
 	}
 
+	// Ensure system directories exist (/etc/backtide/)
+	fmt.Println("📁 Ensuring system directories exist...")
+	if err := config.EnsureSystemDirectories(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not create system directories: %v\n", err)
+		fmt.Println("   You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo mkdir -p /etc/backtide/s3-credentials")
+	}
+
 	// Configure new bucket
 	newBucket := configureBucketForAdd()
 
@@ -184,21 +192,23 @@ func runS3Add(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create mount point directory
+	// Create mount point directory (requires sudo for system directories)
 	fmt.Printf("\n📁 Creating mount point: %s\n", newBucket.MountPoint)
 	if err := os.MkdirAll(newBucket.MountPoint, 0755); err != nil {
 		fmt.Printf("⚠️  Warning: Could not create mount point directory: %v\n", err)
-		fmt.Println("   You may need to create it manually or run with sudo")
+		fmt.Println("   You may need to run with sudo for system directories")
+		fmt.Printf("   Try: sudo mkdir -p %s\n", newBucket.MountPoint)
 	} else {
 		fmt.Printf("✅ Mount point created: %s\n", newBucket.MountPoint)
 	}
 
-	// Add to fstab for persistence
+	// Add to fstab for persistence (requires sudo)
 	fmt.Println("📝 Adding to /etc/fstab for automatic mounting...")
 	s3fsManager := s3fs.NewS3FSManager(newBucket)
 	if err := s3fsManager.AddToFstab(); err != nil {
 		fmt.Printf("⚠️  Warning: Could not add to /etc/fstab: %v\n", err)
-		fmt.Println("   You may need to run with sudo or add it manually")
+		fmt.Println("   You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide s3 add")
 	} else {
 		fmt.Println("✅ Added to /etc/fstab for automatic mounting")
 	}
@@ -208,6 +218,8 @@ func runS3Add(cmd *cobra.Command, args []string) {
 	fmt.Printf("Bucket: %s\n", newBucket.Bucket)
 	fmt.Printf("Provider: %s\n", newBucket.Provider)
 	fmt.Printf("Mount point: %s\n", newBucket.MountPoint)
+	fmt.Printf("Configuration saved to: /etc/backtide/\n")
+	fmt.Printf("Credentials stored in: /etc/backtide/s3-credentials/\n")
 }
 
 func runS3Remove(cmd *cobra.Command, args []string) {
@@ -287,35 +299,39 @@ func runS3Remove(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Clean up credentials file
+	// Clean up credentials file (from /etc/backtide/s3-credentials/)
 	fmt.Println("\n🧹 Cleaning up credentials...")
 	if err := cleanupBucketCredentials(*bucketToRemove); err != nil {
 		fmt.Printf("⚠️  Warning: Could not clean up credentials: %v\n", err)
-		fmt.Println("   You may need to manually remove the credentials file")
+		fmt.Println("   You may need to run with sudo for system directories")
+		fmt.Printf("   Try: sudo rm -f /etc/backtide/s3-credentials/passwd-s3fs-%s\n", bucketToRemove.ID)
 	} else {
 		fmt.Println("✅ Credentials cleaned up successfully")
 	}
 
-	// Remove from fstab
+	// Remove from fstab (requires sudo)
 	fmt.Println("📝 Removing from /etc/fstab...")
 	s3fsManager := s3fs.NewS3FSManager(*bucketToRemove)
 	if err := s3fsManager.RemoveFromFstab(); err != nil {
 		fmt.Printf("⚠️  Warning: Could not remove from /etc/fstab: %v\n", err)
-		fmt.Println("   You may need to remove it manually or run with sudo")
+		fmt.Println("   You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide s3 remove " + bucketToRemove.ID)
 	} else {
 		fmt.Println("✅ Removed from /etc/fstab")
 	}
 
-	// Remove mount point directory if empty
+	// Remove mount point directory if empty (requires sudo for system directories)
 	fmt.Println("📁 Removing mount point directory...")
 	if err := removeMountPointIfEmpty(bucketToRemove.MountPoint); err != nil {
 		fmt.Printf("⚠️  Warning: Could not remove mount point: %v\n", err)
-		fmt.Println("   You may need to remove it manually")
+		fmt.Println("   You may need to run with sudo for system directories")
+		fmt.Printf("   Try: sudo rmdir %s\n", bucketToRemove.MountPoint)
 	} else {
 		fmt.Println("✅ Mount point directory removed")
 	}
 
 	fmt.Printf("✅ S3 bucket configuration '%s' removed successfully!\n", bucketName)
+	fmt.Printf("Configuration removed from: /etc/backtide/\n")
 	if len(dependentJobs) > 0 {
 		fmt.Println("Remember to update dependent jobs with different bucket configurations.")
 	}
@@ -355,6 +371,14 @@ func runS3Test(cmd *cobra.Command, args []string) {
 		fmt.Println("✅ s3fs installed successfully")
 	} else {
 		fmt.Println("✅ s3fs is already installed")
+	}
+
+	// Ensure system directories exist (/etc/backtide/)
+	fmt.Println("📁 Ensuring system directories exist...")
+	if err := config.EnsureSystemDirectories(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not create system directories: %v\n", err)
+		fmt.Println("   You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo mkdir -p /etc/backtide/s3-credentials")
 	}
 
 	// If no specific bucket specified, show available options
@@ -560,41 +584,14 @@ func generateBucketID() string {
 
 // getCredentialsFilePath returns the path to the credentials file for a bucket
 func getCredentialsFilePath(bucketID string) string {
-	// Try to get the original user's home directory, not root's when using sudo
-	homeDir := os.Getenv("SUDO_USER")
-	if homeDir == "" {
-		// Fall back to current user if not using sudo
-		homeDir = os.Getenv("HOME")
-	}
-	if homeDir == "" {
-		// Final fallback to UserHomeDir
-		if dir, err := os.UserHomeDir(); err == nil {
-			homeDir = dir
-		} else {
-			return "unknown"
-		}
-	}
-	return filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucketID))
+	// Use system-wide credentials directory in /etc/backtide
+	return filepath.Join("/etc", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucketID))
 }
 
 // cleanupBucketCredentials removes the credentials file for a bucket
 func cleanupBucketCredentials(bucket config.BucketConfig) error {
-	// Try to get the original user's home directory, not root's when using sudo
-	homeDir := os.Getenv("SUDO_USER")
-	if homeDir == "" {
-		// Fall back to current user if not using sudo
-		homeDir = os.Getenv("HOME")
-	}
-	if homeDir == "" {
-		// Final fallback to UserHomeDir
-		var err error
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %w", err)
-		}
-	}
-
-	credsFile := filepath.Join(homeDir, ".config", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucket.ID))
+	// Use system-wide credentials directory in /etc/backtide
+	credsFile := filepath.Join("/etc", "backtide", "s3-credentials", fmt.Sprintf("passwd-s3fs-%s", bucket.ID))
 
 	// Check if file exists before trying to remove
 	if _, err := os.Stat(credsFile); err == nil {
@@ -648,7 +645,7 @@ func testBucket(bucket config.BucketConfig) {
 	s3fsManager := s3fs.NewS3FSManager(bucket)
 
 	// Check if s3fs is installed
-	fmt.Println("1. Checking if s3fs-fuse is installed...")
+	fmt.Println("1. Checking if s3fs is installed...")
 	if !s3fsManager.IsS3FSInstalled() {
 		fmt.Println("❌ s3fs is not installed")
 		fmt.Println("💡 Install it with:")
@@ -659,21 +656,25 @@ func testBucket(bucket config.BucketConfig) {
 		fmt.Println("   Alpine: sudo apk add s3fs-fuse")
 		return
 	}
-	fmt.Println("✅ s3fs-fuse is installed")
+	fmt.Println("✅ s3fs is installed")
 
 	// Setup S3FS (create mount point and credentials)
 	fmt.Println("2. Setting up S3FS configuration...")
 	if err := s3fsManager.SetupS3FS(); err != nil {
 		fmt.Printf("❌ Setup failed: %v\n", err)
+		fmt.Println("💡 You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide s3 test " + bucket.ID)
 		return
 	}
 	fmt.Println("✅ S3FS setup completed")
+	fmt.Println("   Credentials stored in: /etc/backtide/s3-credentials/")
 
 	// Mount the bucket
 	fmt.Println("3. Mounting S3 bucket...")
 	if err := s3fsManager.MountS3FS(); err != nil {
 		fmt.Printf("❌ Mount failed: %v\n", err)
 		fmt.Println("💡 Check your credentials and network connectivity")
+		fmt.Println("   Also ensure you have proper permissions for system directories")
 		return
 	}
 	fmt.Println("✅ S3 bucket mounted successfully")
@@ -733,4 +734,6 @@ func testBucket(bucket config.BucketConfig) {
 
 	fmt.Println("\n🎉 All tests passed! S3 bucket connectivity is working correctly.")
 	fmt.Printf("📊 Summary: %s bucket '%s' is accessible and functional\n", bucket.Provider, bucket.Bucket)
+	fmt.Println("💡 Configuration stored in: /etc/backtide/")
+	fmt.Println("💡 Credentials stored in: /etc/backtide/s3-credentials/")
 }
