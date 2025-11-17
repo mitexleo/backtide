@@ -91,6 +91,35 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 	// Create systemd service manager
 	manager := systemd.NewServiceManager(systemdServiceName, "", configPath, systemdUser)
 
+	// Check if service already exists
+	isInstalled, err := manager.IsServiceInstalled()
+	if err != nil {
+		fmt.Printf("Warning: Could not check existing service status: %v\n", err)
+	}
+
+	if isInstalled {
+		fmt.Printf("⚠️  Existing systemd service found: %s\n", systemdServiceName)
+
+		// Get current service status
+		status, err := manager.GetServiceStatus()
+		if err != nil {
+			fmt.Printf("Warning: Could not get service status: %v\n", err)
+		} else {
+			if status.IsActive {
+				fmt.Printf("⚠️  Service is currently active. Stopping timer...\n")
+				if err := manager.StopTimer(); err != nil {
+					fmt.Printf("Warning: Could not stop timer: %v\n", err)
+				} else {
+					fmt.Println("✅ Timer stopped successfully")
+				}
+			}
+		}
+
+		fmt.Println("🔄 Replacing existing service files...")
+	} else {
+		fmt.Println("📝 Creating new systemd service...")
+	}
+
 	// Create systemd service directory if it doesn't exist
 	systemdDir := "/etc/systemd/system"
 	if err := os.MkdirAll(systemdDir, 0755); err != nil {
@@ -115,7 +144,7 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Systemd service installed successfully!\n")
+	fmt.Printf("✅ Systemd service installed successfully!\n")
 	fmt.Printf("Service: %s.service\n", systemdServiceName)
 	fmt.Printf("Timer: %s.timer\n", systemdServiceName)
 	fmt.Printf("Config: %s\n", configPath)

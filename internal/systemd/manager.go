@@ -48,6 +48,13 @@ type ServiceStatus struct {
 
 // IsServiceInstalled checks if the systemd service is installed
 func (sm *ServiceManager) IsServiceInstalled() (bool, error) {
+	// Check if service file exists
+	serviceFile := sm.GetServiceFilePath()
+	if _, err := os.Stat(serviceFile); err == nil {
+		return true, nil
+	}
+
+	// Also check via systemctl as fallback
 	cmd := exec.Command("systemctl", "list-unit-files", sm.ServiceName+".service")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -59,6 +66,23 @@ func (sm *ServiceManager) IsServiceInstalled() (bool, error) {
 
 // GetServiceStatus retrieves detailed status of the systemd service
 func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
+	// First check if service is installed
+	isInstalled, err := sm.IsServiceInstalled()
+	if err != nil {
+		return nil, err
+	}
+	if !isInstalled {
+		return &ServiceStatus{
+			ServiceName: sm.ServiceName,
+			LoadState:   "not-found",
+			ActiveState: "inactive",
+			SubState:    "dead",
+			IsEnabled:   false,
+			IsActive:    false,
+			IsRunning:   false,
+		}, nil
+	}
+
 	cmd := exec.Command("systemctl", "show", sm.ServiceName+".service", "--property=LoadState,ActiveState,SubState")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -210,15 +234,27 @@ func (sm *ServiceManager) GetTimerFilePath() string {
 
 // UpdateServiceFiles updates the systemd service files with current binary path
 func (sm *ServiceManager) UpdateServiceFiles(schedule string) error {
-	// Create service file
+	// Check if service files already exist
 	serviceFile := sm.GetServiceFilePath()
+	timerFile := sm.GetTimerFilePath()
+
+	serviceExists := false
+	timerExists := false
+
+	if _, err := os.Stat(serviceFile); err == nil {
+		serviceExists = true
+	}
+	if _, err := os.Stat(timerFile); err == nil {
+		timerExists = true
+	}
+
+	// Create service file
 	serviceContent := sm.GenerateServiceFile()
 	if err := os.WriteFile(serviceFile, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to update service file: %v", err)
 	}
 
 	// Create timer file
-	timerFile := sm.GetTimerFilePath()
 	timerContent := sm.GenerateTimerFile(schedule)
 	if err := os.WriteFile(timerFile, []byte(timerContent), 0644); err != nil {
 		return fmt.Errorf("failed to update timer file: %v", err)
@@ -227,6 +263,15 @@ func (sm *ServiceManager) UpdateServiceFiles(schedule string) error {
 	// Reload systemd daemon
 	if err := sm.ReloadDaemon(); err != nil {
 		return fmt.Errorf("failed to reload systemd after update: %v", err)
+	}
+
+	// Provide feedback about what was done
+	if serviceExists && timerExists {
+		fmt.Printf("  🔄 Updated existing service files\n")
+	} else if serviceExists || timerExists {
+		fmt.Printf("  🔄 Replaced partial service files\n")
+	} else {
+		fmt.Printf("  📝 Created new service files\n")
 	}
 
 	return nil
