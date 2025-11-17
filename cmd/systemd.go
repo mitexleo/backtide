@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/mitexleo/backtide/internal/commands"
+	"github.com/mitexleo/backtide/internal/config"
 	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -81,19 +82,19 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create service files with daily schedule
-	if err := manager.UpdateServiceFiles(""); err != nil {
+	// Create service file for continuous daemon
+	if err := manager.UpdateServiceFile(); err != nil {
 		fmt.Printf("Error setting up scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Enable and start timer
-	if err := manager.EnableTimer(); err != nil {
+	// Enable and start service
+	if err := manager.EnableService(); err != nil {
 		fmt.Printf("Error enabling scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := manager.StartTimer(); err != nil {
+	if err := manager.StartService(); err != nil {
 		fmt.Printf("Error starting scheduling daemon: %v\n", err)
 		os.Exit(1)
 	}
@@ -101,7 +102,7 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 	fmt.Printf("✅ Scheduling daemon enabled!\n")
 	fmt.Println("Daemon will manage ALL backup job schedules internally")
 	fmt.Println("\nTo check status: backtide systemd status")
-	fmt.Println("To view logs: journalctl -u backtide.service")
+	fmt.Println("To view logs: journalctl -u backtide.service -f")
 }
 
 func runSystemdUninstall(cmd *cobra.Command, args []string) {
@@ -117,25 +118,20 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 	// Create systemd service manager
 	manager := systemd.NewServiceManager("backtide", "", "", "")
 
-	// Stop and disable timer
-	if err := manager.StopTimer(); err != nil {
+	// Stop and disable service
+	if err := manager.StopService(); err != nil {
 		fmt.Printf("Warning: Failed to stop scheduling daemon: %v\n", err)
 	}
 
-	if err := manager.DisableTimer(); err != nil {
+	if err := manager.DisableService(); err != nil {
 		fmt.Printf("Warning: Failed to disable scheduling daemon: %v\n", err)
 	}
 
-	// Remove service and timer files
+	// Remove service file
 	serviceFile := manager.GetServiceFilePath()
-	timerFile := manager.GetTimerFilePath()
 
 	if err := os.Remove(serviceFile); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("Error removing service file: %v\n", err)
-	}
-
-	if err := os.Remove(timerFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("Error removing timer file: %v\n", err)
 	}
 
 	// Reload systemd
@@ -160,6 +156,16 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Load configuration to get job count
+	configPath := getConfigPath()
+	cfg, err := config.LoadConfig(configPath)
+	var jobCount int
+	if err != nil {
+		jobCount = 0
+	} else {
+		jobCount = len(cfg.Jobs)
+	}
+
 	if status.IsEnabled {
 		fmt.Printf("✅ Scheduling daemon: ENABLED\n")
 		if status.IsRunning {
@@ -170,6 +176,7 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 			fmt.Printf("🔴 Status: INACTIVE\n")
 		}
 		fmt.Printf("📅 Internal scheduling: ALL backup jobs\n")
+		fmt.Printf("📊 Active jobs: %d\n", jobCount)
 	} else {
 		fmt.Printf("❌ Scheduling daemon: DISABLED\n")
 		fmt.Printf("💡 Run 'sudo backtide systemd install' to enable\n")
@@ -180,10 +187,4 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 func generateServiceFile(binaryPath, configPath, user string) string {
 	manager := systemd.NewServiceManager("backtide", "", configPath, user)
 	return manager.GenerateServiceFile()
-}
-
-// generateTimerFile is kept for backward compatibility but now uses the systemd manager internally
-func generateTimerFile(serviceName, schedule string) string {
-	manager := systemd.NewServiceManager(serviceName, "", "", "")
-	return manager.GenerateTimerFile(schedule)
 }

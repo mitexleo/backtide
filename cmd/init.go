@@ -105,14 +105,14 @@ func runInit(cmd *cobra.Command, args []string) {
 		if err := os.MkdirAll(systemdDir, 0755); err != nil {
 			fmt.Printf("  ⚠️  Warning: Could not create systemd directory: %v\n", err)
 		} else {
-			// Create service files for daemon
-			if err := manager.UpdateServiceFiles(""); err != nil {
+			// Create service file for continuous daemon
+			if err := manager.UpdateServiceFile(); err != nil {
 				fmt.Printf("  ⚠️  Warning: Could not set up scheduling daemon: %v\n", err)
 			} else {
 				// Enable and start service
 				if err := manager.EnableService(); err != nil {
 					fmt.Printf("  ⚠️  Warning: Could not enable daemon: %v\n", err)
-				} else if err := manager.StartTimer(); err != nil {
+				} else if err := manager.StartService(); err != nil {
 					fmt.Printf("  ⚠️  Warning: Could not start daemon: %v\n", err)
 				} else {
 					fmt.Println("  ✅ Scheduling daemon enabled!")

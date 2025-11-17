@@ -138,36 +138,9 @@ WantedBy=multi-user.target
 }
 
 // GenerateTimerFile generates the systemd timer file content
+// DEPRECATED: Backtide now uses continuous daemon for scheduling
 func (sm *ServiceManager) GenerateTimerFile(schedule string) string {
-	var onCalendar string
-
-	switch strings.ToLower(schedule) {
-	case "daily":
-		onCalendar = "daily"
-	case "weekly":
-		onCalendar = "weekly"
-	case "monthly":
-		onCalendar = "monthly"
-	case "hourly":
-		onCalendar = "hourly"
-	default:
-		// Assume it's a cron-like expression or systemd calendar event
-		onCalendar = schedule
-	}
-
-	return `[Unit]
-Description=Backtide Backup Timer
-Documentation=https://github.com/mitexleo/backtide
-Requires=` + sm.ServiceName + `.service
-
-[Timer]
-OnCalendar=` + onCalendar + `
-Persistent=true
-RandomizedDelaySec=300
-
-[Install]
-WantedBy=timers.target
-`
+	return ""
 }
 
 // ReloadDaemon reloads the systemd daemon
@@ -188,38 +161,29 @@ func (sm *ServiceManager) EnableService() error {
 	return nil
 }
 
-// EnableTimer enables the systemd timer
-func (sm *ServiceManager) EnableTimer() error {
-	cmd := exec.Command("systemctl", "enable", sm.ServiceName+".timer")
+// StartService starts the systemd service
+func (sm *ServiceManager) StartService() error {
+	cmd := exec.Command("systemctl", "start", sm.ServiceName+".service")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to enable timer: %s, error: %v", string(output), err)
+		return fmt.Errorf("failed to start service: %s, error: %v", string(output), err)
 	}
 	return nil
 }
 
-// StartTimer starts the systemd timer
-func (sm *ServiceManager) StartTimer() error {
-	cmd := exec.Command("systemctl", "start", sm.ServiceName+".timer")
+// StopService stops the systemd service
+func (sm *ServiceManager) StopService() error {
+	cmd := exec.Command("systemctl", "stop", sm.ServiceName+".service")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start timer: %s, error: %v", string(output), err)
+		return fmt.Errorf("failed to stop service: %s, error: %v", string(output), err)
 	}
 	return nil
 }
 
-// StopTimer stops the systemd timer
-func (sm *ServiceManager) StopTimer() error {
-	cmd := exec.Command("systemctl", "stop", sm.ServiceName+".timer")
+// DisableService disables the systemd service
+func (sm *ServiceManager) DisableService() error {
+	cmd := exec.Command("systemctl", "disable", sm.ServiceName+".service")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to stop timer: %s, error: %v", string(output), err)
-	}
-	return nil
-}
-
-// DisableTimer disables the systemd timer
-func (sm *ServiceManager) DisableTimer() error {
-	cmd := exec.Command("systemctl", "disable", sm.ServiceName+".timer")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to disable timer: %s, error: %v", string(output), err)
+		return fmt.Errorf("failed to disable service: %s, error: %v", string(output), err)
 	}
 	return nil
 }
@@ -234,32 +198,26 @@ func (sm *ServiceManager) GetTimerFilePath() string {
 	return filepath.Join("/etc/systemd/system", sm.ServiceName+".timer")
 }
 
-// UpdateServiceFiles updates the systemd service files with current binary path
-func (sm *ServiceManager) UpdateServiceFiles(schedule string) error {
-	// Check if service files already exist
+// UpdateServiceFile updates the systemd service file for continuous daemon
+func (sm *ServiceManager) UpdateServiceFile() error {
+	// Check if service file already exists
 	serviceFile := sm.GetServiceFilePath()
-	timerFile := sm.GetTimerFilePath()
-
 	serviceExists := false
-	timerExists := false
 
 	if _, err := os.Stat(serviceFile); err == nil {
 		serviceExists = true
 	}
-	if _, err := os.Stat(timerFile); err == nil {
-		timerExists = true
-	}
 
-	// Create service file
+	// Create service file for continuous daemon
 	serviceContent := sm.GenerateServiceFile()
 	if err := os.WriteFile(serviceFile, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to update service file: %v", err)
 	}
 
-	// Create timer file
-	timerContent := sm.GenerateTimerFile(schedule)
-	if err := os.WriteFile(timerFile, []byte(timerContent), 0644); err != nil {
-		return fmt.Errorf("failed to update timer file: %v", err)
+	// Remove any existing timer file (clean up old approach)
+	timerFile := sm.GetTimerFilePath()
+	if _, err := os.Stat(timerFile); err == nil {
+		os.Remove(timerFile)
 	}
 
 	// Reload systemd daemon
@@ -268,12 +226,10 @@ func (sm *ServiceManager) UpdateServiceFiles(schedule string) error {
 	}
 
 	// Provide feedback about what was done
-	if serviceExists && timerExists {
-		fmt.Printf("  🔄 Updated existing service files\n")
-	} else if serviceExists || timerExists {
-		fmt.Printf("  🔄 Replaced partial service files\n")
+	if serviceExists {
+		fmt.Printf("  🔄 Updated existing service file\n")
 	} else {
-		fmt.Printf("  📝 Created new service files\n")
+		fmt.Printf("  📝 Created new service file\n")
 	}
 
 	return nil
