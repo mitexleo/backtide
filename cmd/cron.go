@@ -59,7 +59,6 @@ var cronStatusCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(cronCmd)
 	cronCmd.AddCommand(cronInstallCmd)
 	cronCmd.AddCommand(cronUninstallCmd)
 	cronCmd.AddCommand(cronStatusCmd)

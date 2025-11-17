@@ -104,7 +104,6 @@ executed even when running 'backtide backup --all'.`,
 }
 
 func init() {
-	rootCmd.AddCommand(jobsCmd)
 	jobsCmd.AddCommand(jobsListCmd)
 	jobsCmd.AddCommand(jobsShowCmd)
 	jobsCmd.AddCommand(jobsEnableCmd)
@@ -126,7 +125,7 @@ func runJobsList(cmd *cobra.Command, args []string) {
 
 	if len(cfg.Jobs) == 0 {
 		fmt.Println("No backup jobs configured.")
-		fmt.Println("Use 'backtide init' to create backup jobs.")
+		fmt.Println("Use 'backtide jobs add' to create backup jobs.")
 		return
 	}
 

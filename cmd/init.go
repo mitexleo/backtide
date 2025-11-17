@@ -28,7 +28,6 @@ Use this command once during initial setup.`,
 }
 
 func init() {
-	rootCmd.AddCommand(initCmd)
 	initCmd.Flags().BoolVar(&initForce, "force", false, "overwrite existing configuration")
 }
 

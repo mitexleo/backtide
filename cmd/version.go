@@ -23,5 +23,4 @@ For development builds, this will show "dev".`,
 }
 
 func init() {
-	rootCmd.AddCommand(versionCmd)
 }

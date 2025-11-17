@@ -86,7 +86,6 @@ This command will:
 }
 
 func init() {
-	rootCmd.AddCommand(s3Cmd)
 	s3Cmd.AddCommand(s3ListCmd)
 	s3Cmd.AddCommand(s3AddCmd)
 	s3Cmd.AddCommand(s3RemoveCmd)

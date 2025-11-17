@@ -37,8 +37,6 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(listCmd)
-
 	listCmd.Flags().BoolVar(&listJobs, "jobs", false, "list backup jobs")
 	listCmd.Flags().BoolVar(&listBuckets, "buckets", false, "list S3 bucket configurations")
 	listCmd.Flags().BoolVar(&listBackups, "backups", false, "list available backups")
@@ -76,7 +74,7 @@ func listBackupJobs(cfg *config.BackupConfig) {
 
 	if len(cfg.Jobs) == 0 {
 		fmt.Println("No backup jobs configured.")
-		fmt.Println("Use 'backtide init' to create backup jobs.")
+		fmt.Println("Use 'backtide jobs add' to create backup jobs.")
 		return
 	}
 

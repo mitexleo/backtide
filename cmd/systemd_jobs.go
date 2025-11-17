@@ -78,7 +78,6 @@ This command will:
 }
 
 func init() {
-	rootCmd.AddCommand(systemdJobsCmd)
 	systemdJobsCmd.AddCommand(systemdJobsInstallCmd)
 	systemdJobsCmd.AddCommand(systemdJobsUninstallCmd)
 	systemdJobsCmd.AddCommand(systemdJobsStatusCmd)

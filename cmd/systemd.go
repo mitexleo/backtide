@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/mitexleo/backtide/internal/config"
+	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +62,6 @@ var systemdStatusCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(systemdCmd)
 	systemdCmd.AddCommand(systemdInstallCmd)
 	systemdCmd.AddCommand(systemdUninstallCmd)
 	systemdCmd.AddCommand(systemdStatusCmd)
@@ -90,13 +88,6 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create systemd service directory if it doesn't exist
-	systemdDir := "/etc/systemd/system"
-	if err := os.MkdirAll(systemdDir, 0755); err != nil {
-		fmt.Printf("Error creating systemd directory: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Get absolute path to backtide binary
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -104,35 +95,29 @@ func runSystemdInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Create service file
-	serviceFile := filepath.Join(systemdDir, systemdServiceName+".service")
-	serviceContent := generateServiceFile(binaryPath, configPath, systemdUser)
-	if err := os.WriteFile(serviceFile, []byte(serviceContent), 0644); err != nil {
-		fmt.Printf("Error creating service file: %v\n", err)
+	// Create systemd service manager
+	manager := systemd.NewServiceManager(systemdServiceName, binaryPath, configPath, systemdUser)
+
+	// Create systemd service directory if it doesn't exist
+	systemdDir := "/etc/systemd/system"
+	if err := os.MkdirAll(systemdDir, 0755); err != nil {
+		fmt.Printf("Error creating systemd directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Create timer file
-	timerFile := filepath.Join(systemdDir, systemdServiceName+".timer")
-	timerContent := generateTimerFile(systemdServiceName, systemdSchedule)
-	if err := os.WriteFile(timerFile, []byte(timerContent), 0644); err != nil {
-		fmt.Printf("Error creating timer file: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Reload systemd
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		fmt.Printf("Error reloading systemd: %v\n", err)
+	// Update service files with current binary path
+	if err := manager.UpdateServiceFiles(systemdSchedule); err != nil {
+		fmt.Printf("Error creating systemd service files: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Enable and start timer
-	if err := exec.Command("systemctl", "enable", systemdServiceName+".timer").Run(); err != nil {
+	if err := manager.EnableTimer(); err != nil {
 		fmt.Printf("Error enabling timer: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := exec.Command("systemctl", "start", systemdServiceName+".timer").Run(); err != nil {
+	if err := manager.StartTimer(); err != nil {
 		fmt.Printf("Error starting timer: %v\n", err)
 		os.Exit(1)
 	}
@@ -155,19 +140,21 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Create systemd service manager (binary path doesn't matter for uninstall)
+	manager := systemd.NewServiceManager(systemdServiceName, "", "", "")
+
 	// Stop and disable timer
-	if err := exec.Command("systemctl", "stop", systemdServiceName+".timer").Run(); err != nil {
+	if err := manager.StopTimer(); err != nil {
 		fmt.Printf("Warning: Failed to stop timer: %v\n", err)
 	}
 
-	if err := exec.Command("systemctl", "disable", systemdServiceName+".timer").Run(); err != nil {
+	if err := manager.DisableTimer(); err != nil {
 		fmt.Printf("Warning: Failed to disable timer: %v\n", err)
 	}
 
 	// Remove service and timer files
-	systemdDir := "/etc/systemd/system"
-	serviceFile := filepath.Join(systemdDir, systemdServiceName+".service")
-	timerFile := filepath.Join(systemdDir, systemdServiceName+".timer")
+	serviceFile := manager.GetServiceFilePath()
+	timerFile := manager.GetTimerFilePath()
 
 	if err := os.Remove(serviceFile); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("Error removing service file: %v\n", err)
@@ -178,7 +165,7 @@ func runSystemdUninstall(cmd *cobra.Command, args []string) {
 	}
 
 	// Reload systemd
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+	if err := manager.ReloadDaemon(); err != nil {
 		fmt.Printf("Error reloading systemd: %v\n", err)
 		os.Exit(1)
 	}
@@ -216,54 +203,14 @@ func runSystemdStatus(cmd *cobra.Command, args []string) {
 	}
 }
 
+// generateServiceFile is kept for backward compatibility but now uses the systemd manager internally
 func generateServiceFile(binaryPath, configPath, user string) string {
-	return `[Unit]
-Description=Backtide Backup Service
-Documentation=https://github.com/mitexleo/backtide
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-User=` + user + `
-ExecStart=` + binaryPath + ` backup --config ` + configPath + `
-StandardOutput=journal
-StandardError=journal
-TimeoutStopSec=300
-
-[Install]
-WantedBy=multi-user.target
-`
+	manager := systemd.NewServiceManager("backtide", binaryPath, configPath, user)
+	return manager.GenerateServiceFile()
 }
 
+// generateTimerFile is kept for backward compatibility but now uses the systemd manager internally
 func generateTimerFile(serviceName, schedule string) string {
-	var onCalendar string
-
-	switch strings.ToLower(schedule) {
-	case "daily":
-		onCalendar = "daily"
-	case "weekly":
-		onCalendar = "weekly"
-	case "monthly":
-		onCalendar = "monthly"
-	case "hourly":
-		onCalendar = "hourly"
-	default:
-		// Assume it's a cron-like expression or systemd calendar event
-		onCalendar = schedule
-	}
-
-	return `[Unit]
-Description=Backtide Backup Timer
-Documentation=https://github.com/mitexleo/backtide
-Requires=` + serviceName + `.service
-
-[Timer]
-OnCalendar=` + onCalendar + `
-Persistent=true
-RandomizedDelaySec=300
-
-[Install]
-WantedBy=timers.target
-`
+	manager := systemd.NewServiceManager(serviceName, "", "", "")
+	return manager.GenerateTimerFile(schedule)
 }

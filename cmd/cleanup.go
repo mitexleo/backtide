@@ -33,8 +33,6 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(cleanupCmd)
-
 	cleanupCmd.Flags().StringVarP(&cleanupJobName, "job", "j", "", "clean up backups for specific job")
 	cleanupCmd.Flags().BoolVarP(&cleanupAll, "all", "a", false, "clean up backups for all jobs")
 }
@@ -50,7 +48,7 @@ func runCleanup(cmd *cobra.Command, args []string) {
 	// Check if we have any jobs configured
 	if len(cfg.Jobs) == 0 {
 		fmt.Println("No backup jobs configured.")
-		fmt.Println("Use 'backtide init' to create backup jobs.")
+		fmt.Println("Use 'backtide jobs add' to create backup jobs.")
 		return
 	}
 

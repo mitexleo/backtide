@@ -34,8 +34,6 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(restoreCmd)
-
 	restoreCmd.Flags().StringVarP(&restoreJobName, "job", "j", "", "restore backup for specific job")
 	restoreCmd.Flags().BoolVarP(&restoreForce, "force", "f", false, "skip confirmation prompts")
 }
@@ -52,7 +50,7 @@ func runRestore(cmd *cobra.Command, args []string) {
 	// Check if we have any jobs configured
 	if len(cfg.Jobs) == 0 {
 		fmt.Println("No backup jobs configured.")
-		fmt.Println("Use 'backtide init' to create backup jobs.")
+		fmt.Println("Use 'backtide jobs add' to create backup jobs.")
 		return
 	}
 
@@ -85,7 +83,7 @@ func runRestore(cmd *cobra.Command, args []string) {
 
 	if job == nil {
 		fmt.Println("No backup job found to use for restore.")
-		fmt.Println("Use 'backtide init' to create backup jobs.")
+		fmt.Println("Use 'backtide jobs add' to create backup jobs.")
 		return
 	}
 
