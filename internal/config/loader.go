@@ -116,8 +116,11 @@ func ValidateConfig(config *BackupConfig) error {
 				return fmt.Errorf("job name cannot be empty for job %d", i)
 			}
 
+			// Allow jobs without directories for initial configuration
+			// Directories can be added later through configuration editing
 			if len(job.Directories) == 0 {
-				return fmt.Errorf("at least one directory must be specified for job %s", job.Name)
+				// Only warn, don't fail validation for empty directories
+				// This allows initial configuration to be created without directories
 			}
 
 			for j, dir := range job.Directories {

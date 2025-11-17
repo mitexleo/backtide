@@ -142,20 +142,33 @@ func getConfigPath() string {
 		return cfgFile
 	}
 
-	// Try to find config file in common locations
+	// Try to find config file in common locations (system config first)
 	if found := config.FindConfigFile(); found != "" {
 		return found
 	}
 
-	// Create default config if none exists
-	defaultPath := filepath.Join(os.Getenv("HOME"), ".backtide.toml")
-	if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
-		fmt.Printf("No configuration file found. Creating default config at %s\n", defaultPath)
-		if err := config.CreateDefaultConfig(defaultPath); err != nil {
-			fmt.Printf("Error creating default config: %v\n", err)
-			os.Exit(1)
+	// Create system configuration if none exists
+	systemPath := "/etc/backtide/config.toml"
+	if _, err := os.Stat(systemPath); os.IsNotExist(err) {
+		fmt.Printf("No configuration file found. Creating system config at %s\n", systemPath)
+		fmt.Println("💡 For production use, system configuration is recommended")
+		if err := config.CreateDefaultConfig(systemPath); err != nil {
+			fmt.Printf("Error creating system config: %v\n", err)
+			fmt.Println("Falling back to user configuration...")
+
+			// Fall back to user configuration
+			defaultPath := filepath.Join(os.Getenv("HOME"), ".backtide.toml")
+			if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
+				fmt.Printf("Creating user configuration at %s\n", defaultPath)
+				if err := config.CreateDefaultConfig(defaultPath); err != nil {
+					fmt.Printf("Error creating user config: %v\n", err)
+					os.Exit(1)
+				}
+			}
+			return defaultPath
 		}
+		return systemPath
 	}
 
-	return defaultPath
+	return systemPath
 }

@@ -19,38 +19,35 @@ var (
 	initSkipInteractive bool
 )
 
-// initCmd represents the init command
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize backtide configuration",
-	Long: `Initialize backtide with a default configuration file.
+	Short: "Initialize Backtide system configuration",
+	Long: `Initialize Backtide system configuration.
 
-This command will:
-1. Create a default configuration file
-2. Set up necessary directories
-3. Provide guidance for next steps
+This command creates the system-wide configuration in /etc/backtide/
+and optionally creates your first backup job.
 
-The configuration file will be created in the system location
-(/etc/backtide/config.toml) unless specified otherwise.`,
+Examples:
+  backtide init                    # Interactive setup
+  backtide init --skip-interactive # Create config only, no job setup
+  backtide init --examples         # Create example configuration
+  backtide init --force            # Overwrite existing configuration`,
 	Run: runInit,
 }
 
 func init() {
-	rootCmd.AddCommand(initCmd)
-
-	initCmd.Flags().BoolVarP(&initForce, "force", "f", false, "overwrite existing configuration file")
-	initCmd.Flags().BoolVar(&initExamples, "examples", false, "include example configurations")
-	initCmd.Flags().BoolVar(&initSkipInteractive, "skip-interactive", false, "skip interactive configuration setup")
+	initCmd.Flags().BoolVar(&initForce, "force", false, "overwrite existing configuration")
+	initCmd.Flags().BoolVar(&initExamples, "examples", false, "create example configuration")
+	initCmd.Flags().BoolVar(&initSkipInteractive, "skip-interactive", false, "skip interactive job setup")
 }
 
 func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println("Initializing backtide...")
 
-	// Determine config file path
-	configPath := cfgFile
-	if configPath == "" {
-		// Use system configuration location by default
-		configPath = "/etc/backtide/config.toml"
+	// Determine config file path - always use system location for init
+	configPath := "/etc/backtide/config.toml"
+	if cfgFile != "" {
+		configPath = cfgFile
 	}
 
 	// Check if config file already exists
@@ -59,6 +56,7 @@ func runInit(cmd *cobra.Command, args []string) {
 		if !initForce {
 			fmt.Printf("Configuration file already exists: %s\n", configPath)
 			fmt.Println("Use --force to overwrite existing configuration")
+			fmt.Println("Or use 'backtide jobs add' to add jobs to existing configuration")
 			os.Exit(1)
 		}
 		// Load existing config to preserve settings
@@ -69,6 +67,8 @@ func runInit(cmd *cobra.Command, args []string) {
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		fmt.Printf("Error creating configuration directory: %v\n", err)
+		fmt.Println("💡 You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide init")
 		os.Exit(1)
 	}
 
@@ -88,20 +88,7 @@ func runInit(cmd *cobra.Command, args []string) {
 		defaultConfig = config.DefaultConfig()
 	}
 
-	// Interactive job configuration setup
-	if !dryRun && !initSkipInteractive {
-		fmt.Println("\n=== Backup Job Setup ===")
-		fmt.Println("Let's create your first backup job with scheduling and retention.")
-		fmt.Println()
-
-		// Create a complete backup job
-		job := configureBackupJobInteractive(configPath)
-		// Add to existing jobs (will be empty if no existing config)
-		defaultConfig.Jobs = append(defaultConfig.Jobs, job)
-
-	}
-
-	// Save configuration to system location
+	// Save configuration to system location FIRST
 	fmt.Printf("💾 Saving configuration to: %s\n", configPath)
 	if err := config.SaveConfig(defaultConfig, configPath); err != nil {
 		fmt.Printf("❌ Error saving configuration: %v\n", err)
@@ -122,7 +109,6 @@ func runInit(cmd *cobra.Command, args []string) {
 		"/tmp/backtide",
 	}
 
-	fmt.Println("\nCreating necessary directories...")
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			fmt.Printf("  Warning: Could not create %s: %v\n", dir, err)
@@ -131,7 +117,44 @@ func runInit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	fmt.Printf("\nConfiguration created successfully: %s\n", configPath)
+	// Interactive job configuration setup (only if not skipped)
+	if !dryRun && !initSkipInteractive {
+		fmt.Println("\n=== Backup Job Setup ===")
+		fmt.Println("Would you like to create your first backup job now?")
+		fmt.Println("1. Yes, create a backup job with scheduling")
+		fmt.Println("2. No, just create the configuration")
+		fmt.Print("Choose option (1-2): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		choice, _ := reader.ReadString('\n')
+		choice = strings.TrimSpace(choice)
+
+		if choice == "1" {
+			fmt.Println("\nLet's create your first backup job with scheduling and retention.")
+			fmt.Println()
+
+			// Create a complete backup job
+			job := configureBackupJobInteractive(configPath, defaultConfig)
+			// Add to existing jobs
+			defaultConfig.Jobs = append(defaultConfig.Jobs, job)
+
+			// Save configuration with new job
+			fmt.Printf("💾 Saving configuration with new job to: %s\n", configPath)
+			if err := config.SaveConfig(defaultConfig, configPath); err != nil {
+				fmt.Printf("❌ Error saving configuration: %v\n", err)
+				fmt.Println("💡 You may need to run with sudo for system configuration")
+				fmt.Println("   Try: sudo backtide init")
+				os.Exit(1)
+			}
+
+			fmt.Printf("\n🎉 Backup job '%s' configured successfully!\n", job.Name)
+		} else {
+			fmt.Println("\n✅ Configuration created without backup job.")
+			fmt.Println("   Use 'backtide jobs add' to add backup jobs later.")
+		}
+	}
+
+	fmt.Printf("\n✅ Configuration created successfully: %s\n", configPath)
 	fmt.Println("\nNext steps:")
 	fmt.Println("1. Edit the configuration file with your specific settings")
 	fmt.Println("2. Set S3 credentials and bucket information")
@@ -141,12 +164,13 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println("\nExample commands:")
 	fmt.Println("  backtide backup                    # Run backup")
 	fmt.Println("  backtide list                      # List backups")
+	fmt.Println("  backtide jobs add                  # Add backup job")
+	fmt.Println("  backtide s3 add                    # Add S3 bucket")
 	fmt.Println("  backtide systemd install           # Set up systemd service")
 	fmt.Println("  backtide cron install              # Set up cron job")
 }
 
-// configureS3Interactive interactively configures S3 settings
-func configureBackupJobInteractive(configPath string) config.BackupJob {
+func configureBackupJobInteractive(configPath string, currentConfig *config.BackupConfig) config.BackupJob {
 	reader := bufio.NewReader(os.Stdin)
 	job := config.BackupJob{
 		ID:         generateJobID(),
@@ -286,7 +310,7 @@ func configureBackupJobInteractive(configPath string) config.BackupJob {
 		job.Storage.S3 = true
 		job.Storage.Local = false
 		fmt.Println("✅ Backups will be stored in S3 only")
-		bucketID := configureBucketForJob(configPath)
+		bucketID := configureBucketForJob(configPath, currentConfig)
 		job.BucketID = bucketID
 	case "2":
 		job.Storage.S3 = false
@@ -297,14 +321,14 @@ func configureBackupJobInteractive(configPath string) config.BackupJob {
 		job.Storage.S3 = true
 		job.Storage.Local = true
 		fmt.Println("✅ Backups will be stored in both S3 and locally")
-		bucketID := configureBucketForJob(configPath)
+		bucketID := configureBucketForJob(configPath, currentConfig)
 		job.BucketID = bucketID
 	default:
 		// Default to S3 only for safety
 		job.Storage.S3 = true
 		job.Storage.Local = false
 		fmt.Println("❌ Invalid choice, defaulting to S3 only")
-		bucketID := configureBucketForJob(configPath)
+		bucketID := configureBucketForJob(configPath, currentConfig)
 		job.BucketID = bucketID
 	}
 
@@ -326,7 +350,6 @@ func configureBackupJobInteractive(configPath string) config.BackupJob {
 	fmt.Println("\n=== Directory Configuration ===")
 	job.Directories = configureDirectoriesInteractive()
 
-	fmt.Printf("\n🎉 Backup job '%s' configured successfully!\n", job.Name)
 	return job
 }
 
@@ -343,11 +366,18 @@ func getExistingBuckets(configPath string) []config.BucketConfig {
 	return currentConfig.Buckets
 }
 
-func configureBucketForJob(configPath string) string {
+func getExistingBucketsFromConfig(currentConfig *config.BackupConfig) []config.BucketConfig {
+	if currentConfig == nil {
+		return []config.BucketConfig{}
+	}
+	return currentConfig.Buckets
+}
+
+func configureBucketForJob(configPath string, currentConfig *config.BackupConfig) string {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Check for existing buckets
-	existingBuckets := getExistingBuckets(configPath)
+	existingBuckets := getExistingBucketsFromConfig(currentConfig)
 	if len(existingBuckets) > 0 {
 		fmt.Println("\n=== Existing Bucket Configurations ===")
 		fmt.Println("Choose from existing buckets or create new:")
@@ -376,138 +406,212 @@ func configureBucketForJob(configPath string) string {
 	// No existing buckets or user wants to create new one
 	fmt.Println("No existing buckets found or creating new bucket...")
 
-	// Load config to add new bucket
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Configure new bucket
-	newBucket := configureBucketForAdd()
-	cfg.Buckets = append(cfg.Buckets, newBucket)
-
-	// Save configuration with new bucket to system location
-	fmt.Printf("💾 Saving configuration to: %s\n", configPath)
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		fmt.Printf("❌ Error saving configuration: %v\n", err)
-		fmt.Println("💡 You may need to run with sudo for system configuration")
-		fmt.Println("   Try: sudo backtide init")
-		os.Exit(1)
-	}
+	// Configure new bucket (basic setup without credentials)
+	newBucket := configureBasicBucketForInit()
+	currentConfig.Buckets = append(currentConfig.Buckets, newBucket)
 
 	fmt.Printf("✅ New bucket configuration '%s' added!\n", newBucket.Name)
+	fmt.Println("💡 Note: You'll need to update the bucket credentials later using 'backtide s3 edit'")
 
 	return newBucket.ID
 }
 
-// configureDirectoriesInteractive interactively configures directories to backup
 func configureDirectoriesInteractive() []config.DirectoryConfig {
 	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("Common directories to backup:")
-	fmt.Println("1. Docker volumes (/var/lib/docker/volumes)")
-	fmt.Println("2. User home directory")
-	fmt.Println("3. System configuration (/etc)")
-	fmt.Println("4. Application data (/opt)")
-	fmt.Println("5. Custom directory")
-	fmt.Println("6. Skip directory configuration for now")
-	fmt.Print("Choose directories to backup (comma-separated, e.g., 1,3,5): ")
-
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(choice)
-
-	if choice == "6" {
-		fmt.Println("Skipping directory configuration.")
-		return []config.DirectoryConfig{}
-	}
-
-	choices := strings.Split(choice, ",")
 	var directories []config.DirectoryConfig
 
-	for _, c := range choices {
-		c = strings.TrimSpace(c)
-		switch c {
-		case "1":
-			// Docker volumes
-			directories = append(directories, config.DirectoryConfig{
-				Path:        "/var/lib/docker/volumes",
-				Name:        "docker-volumes",
-				Compression: true,
-			})
-			fmt.Println("✅ Added Docker volumes (/var/lib/docker/volumes)")
+	fmt.Println("Configure directories to backup:")
+	fmt.Println("Enter directory paths one by one (empty line to finish)")
 
-		case "2":
-			// User home
-			home, err := os.UserHomeDir()
-			if err == nil {
-				dirName := filepath.Base(home) + "-home"
-				directories = append(directories, config.DirectoryConfig{
-					Path:        home,
-					Name:        dirName,
-					Compression: true,
-				})
-				fmt.Printf("✅ Added home directory (%s)\n", home)
-			}
+	for {
+		fmt.Print("Directory path (e.g., /var/lib/docker/volumes): ")
+		path, _ := reader.ReadString('\n')
+		path = strings.TrimSpace(path)
 
-		case "3":
-			// System config
-			directories = append(directories, config.DirectoryConfig{
-				Path:        "/etc",
-				Name:        "system-config",
-				Compression: true,
-			})
-			fmt.Println("✅ Added system configuration (/etc)")
+		if path == "" {
+			break
+		}
 
-		case "4":
-			// Application data
-			directories = append(directories, config.DirectoryConfig{
-				Path:        "/opt",
-				Name:        "application-data",
-				Compression: true,
-			})
-			fmt.Println("✅ Added application data (/opt)")
-
-		case "5":
-			// Custom directory
-			fmt.Print("Enter directory path to backup: ")
-			path, _ := reader.ReadString('\n')
-			path = strings.TrimSpace(path)
-
-			if path != "" {
-				fmt.Print("Enter backup name for this directory: ")
-				name, _ := reader.ReadString('\n')
-				name = strings.TrimSpace(name)
-				if name == "" {
-					name = filepath.Base(path)
-				}
-
-				fmt.Print("Enable compression? (Y/n): ")
-				compress, _ := reader.ReadString('\n')
-				compress = strings.TrimSpace(compress)
-				compression := compress == "" || strings.ToLower(compress) == "y"
-
-				directories = append(directories, config.DirectoryConfig{
-					Path:        path,
-					Name:        name,
-					Compression: compression,
-				})
-				fmt.Printf("✅ Added custom directory: %s\n", path)
+		// Check if directory exists
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			fmt.Printf("⚠️  Warning: Directory does not exist: %s\n", path)
+			fmt.Print("Continue anyway? (y/N): ")
+			confirm, _ := reader.ReadString('\n')
+			confirm = strings.TrimSpace(strings.ToLower(confirm))
+			if confirm != "y" && confirm != "yes" {
+				continue
 			}
 		}
+
+		fmt.Print("Backup name (e.g., 'docker-volumes'): ")
+		name, _ := reader.ReadString('\n')
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = filepath.Base(path)
+		}
+
+		fmt.Print("Enable compression? (Y/n): ")
+		compression, _ := reader.ReadString('\n')
+		compression = strings.TrimSpace(compression)
+		enableCompression := true
+		if compression == "n" || compression == "no" {
+			enableCompression = false
+		}
+
+		directory := config.DirectoryConfig{
+			Path:        path,
+			Name:        name,
+			Compression: enableCompression,
+		}
+
+		directories = append(directories, directory)
+		fmt.Printf("✅ Added: %s -> %s (compression: %v)\n", path, name, enableCompression)
 	}
 
-	if len(directories) > 0 {
-		fmt.Printf("\n✅ Configured %d directories for backup\n", len(directories))
-	} else {
-		fmt.Println("No directories configured for backup.")
-		fmt.Println("You can add them later by editing the configuration file.")
+	if len(directories) == 0 {
+		fmt.Println("⚠️  No directories configured. You can add them later in the configuration file.")
 	}
 
 	return directories
 }
 
-// generateJobID creates a unique identifier for backup jobs
+// configureBasicBucketForInit creates a basic bucket configuration without credentials
+func configureBasicBucketForInit() config.BucketConfig {
+	reader := bufio.NewReader(os.Stdin)
+	bucket := config.BucketConfig{
+		MountPoint: "/mnt/s3backup",
+	}
+
+	// Generate a unique ID
+	bucket.ID = generateBucketID()
+
+	fmt.Print("Bucket name (display name): ")
+	name, _ := reader.ReadString('\n')
+	bucket.Name = strings.TrimSpace(name)
+	if bucket.Name == "" {
+		bucket.Name = "default-bucket"
+	}
+
+	fmt.Print("Description (optional): ")
+	desc, _ := reader.ReadString('\n')
+	bucket.Description = strings.TrimSpace(desc)
+
+	fmt.Println("\nS3 Provider Options:")
+	fmt.Println("1. AWS S3")
+	fmt.Println("2. Backblaze B2")
+	fmt.Println("3. Wasabi")
+	fmt.Println("4. DigitalOcean Spaces")
+	fmt.Println("5. MinIO")
+	fmt.Println("6. Other S3-compatible provider")
+	fmt.Print("Choose provider (1-6): ")
+
+	choice, _ := reader.ReadString('\n')
+	choice = strings.TrimSpace(choice)
+
+	var providerName string
+	var defaultEndpoint string
+	var recommendedPathStyle bool
+
+	switch choice {
+	case "1":
+		providerName = "AWS S3"
+		recommendedPathStyle = false
+		fmt.Print("AWS Region (e.g., us-east-1): ")
+		region, _ := reader.ReadString('\n')
+		bucket.Region = strings.TrimSpace(region)
+
+	case "2":
+		providerName = "Backblaze B2"
+		defaultEndpoint = "https://s3.us-west-002.backblazeb2.com"
+		recommendedPathStyle = true
+		bucket.Region = ""
+
+	case "3":
+		providerName = "Wasabi"
+		defaultEndpoint = "https://s3.wasabisys.com"
+		recommendedPathStyle = false
+		fmt.Print("Wasabi Region (e.g., us-east-1): ")
+		region, _ := reader.ReadString('\n')
+		bucket.Region = strings.TrimSpace(region)
+	case "4":
+		providerName = "DigitalOcean Spaces"
+		defaultEndpoint = "https://nyc3.digitaloceanspaces.com"
+		recommendedPathStyle = false
+		fmt.Print("DO Region (e.g., nyc3): ")
+		region, _ := reader.ReadString('\n')
+		bucket.Region = strings.TrimSpace(region)
+	case "5":
+		providerName = "MinIO"
+		defaultEndpoint = "http://localhost:9000"
+		recommendedPathStyle = true
+		bucket.Region = ""
+
+	case "6":
+		providerName = "Other S3-compatible"
+		recommendedPathStyle = false
+		fmt.Print("Endpoint URL (e.g., https://s3.example.com): ")
+		endpoint, _ := reader.ReadString('\n')
+		defaultEndpoint = strings.TrimSpace(endpoint)
+	default:
+		fmt.Println("Invalid choice, using AWS S3 defaults")
+		providerName = "AWS S3"
+		recommendedPathStyle = false
+	}
+
+	bucket.Provider = providerName
+	fmt.Printf("\nConfiguring %s...\n", providerName)
+
+	// Bucket name
+	fmt.Print("S3 Bucket name: ")
+	s3Bucket, _ := reader.ReadString('\n')
+	bucket.Bucket = strings.TrimSpace(s3Bucket)
+	if bucket.Bucket == "" {
+		bucket.Bucket = "my-backup-bucket"
+	}
+
+	// Endpoint
+	if defaultEndpoint != "" {
+		fmt.Printf("Endpoint [%s]: ", defaultEndpoint)
+		endpoint, _ := reader.ReadString('\n')
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint == "" {
+			bucket.Endpoint = defaultEndpoint
+		} else {
+			bucket.Endpoint = endpoint
+		}
+	} else {
+		fmt.Print("Endpoint (leave empty for AWS default): ")
+		endpoint, _ := reader.ReadString('\n')
+		bucket.Endpoint = strings.TrimSpace(endpoint)
+	}
+
+	// Path style
+	fmt.Printf("Use path-style endpoints? (recommended: %v) (y/N): ", recommendedPathStyle)
+	pathStyle, _ := reader.ReadString('\n')
+	if strings.ToLower(strings.TrimSpace(pathStyle)) == "y" {
+		bucket.UsePathStyle = true
+	} else {
+		bucket.UsePathStyle = false
+	}
+
+	// Mount point
+	fmt.Printf("Mount point [%s]: ", bucket.MountPoint)
+	mountPoint, _ := reader.ReadString('\n')
+	mountPoint = strings.TrimSpace(mountPoint)
+	if mountPoint != "" {
+		bucket.MountPoint = mountPoint
+	}
+
+	// Skip credentials for now - they can be added later
+	bucket.AccessKey = "YOUR_ACCESS_KEY_HERE"
+	bucket.SecretKey = "YOUR_SECRET_KEY_HERE"
+
+	fmt.Printf("✅ S3 bucket configuration for %s completed!\n", providerName)
+	fmt.Println("💡 Note: You'll need to update the bucket credentials later using 'backtide s3 edit'")
+
+	return bucket
+}
+
 func generateJobID() string {
 	return fmt.Sprintf("job-%s", time.Now().Format("20060102-150405"))
 }
@@ -515,78 +619,16 @@ func generateJobID() string {
 func createExampleConfig() *config.BackupConfig {
 	cfg := config.DefaultConfig()
 
-	// Example S3 configuration - Choose ONE provider and configure accordingly:
-
-	// Example bucket configuration
-	exampleBucket := config.BucketConfig{
-		ID:           "bucket-example-1",
-		Name:         "AWS S3 Example",
-		Bucket:       "my-backup-bucket",
-		Region:       "us-east-1",
-		AccessKey:    "YOUR_ACCESS_KEY_HERE",
-		SecretKey:    "YOUR_SECRET_KEY_HERE",
-		Endpoint:     "", // Leave empty for AWS
-		MountPoint:   "/mnt/s3backup",
-		UsePathStyle: false,
-		Provider:     "AWS S3",
-		Description:  "Example AWS S3 bucket configuration",
-	}
-	cfg.Buckets = append(cfg.Buckets, exampleBucket)
-
-	// Backblaze B2 example (recommended)
-	// Uncomment and configure for Backblaze B2
-	// b2Bucket := config.BucketConfig{
-	//     ID:           "bucket-b2-1",
-	//     Name:         "Backblaze B2 Example",
-	//     Bucket:       "my-b2-bucket",
-	//     Region:       "",
-	//     AccessKey:    "YOUR_B2_ACCESS_KEY",
-	//     SecretKey:    "YOUR_B2_SECRET_KEY",
-	//     Endpoint:     "https://s3.us-west-002.backblazeb2.com",
-	//     MountPoint:   "/mnt/s3backup-b2",
-	//     UsePathStyle: true,
-	//     Provider:     "Backblaze B2",
-	//     Description:  "Example Backblaze B2 bucket configuration",
-	// }
-	// cfg.Buckets = append(cfg.Buckets, b2Bucket)
-	// cfg.S3Config.Region = ""  // Not used for B2
-	// cfg.S3Config.AccessKey = "YOUR_APPLICATION_KEY_ID"
-	// cfg.S3Config.SecretKey = "YOUR_APPLICATION_KEY"
-	// cfg.S3Config.MountPoint = "/mnt/s3backup"
-	// cfg.S3Config.Endpoint = "https://s3.us-west-002.backblazeb2.com"  // Your B2 endpoint
-	// cfg.S3Config.UsePathStyle = true  // Recommended for B2
-
-	// Wasabi
-	// cfg.S3Config.Bucket = "my-backup-bucket"
-	// cfg.S3Config.Region = "us-east-1"  // Your Wasabi region
-	// cfg.S3Config.AccessKey = "YOUR_ACCESS_KEY_HERE"
-	// cfg.S3Config.SecretKey = "YOUR_SECRET_KEY_HERE"
-	// cfg.S3Config.MountPoint = "/mnt/s3backup"
-	// cfg.S3Config.Endpoint = "https://s3.wasabisys.com"  // Wasabi endpoint
-	// cfg.S3Config.UsePathStyle = false
-
-	// DigitalOcean Spaces
-	// cfg.S3Config.Bucket = "my-backup-bucket"
-	// cfg.S3Config.Region = "nyc3"  // Your DO region
-	// cfg.S3Config.AccessKey = "YOUR_SPACES_KEY"
-	// cfg.S3Config.SecretKey = "YOUR_SPACES_SECRET"
-	// cfg.S3Config.MountPoint = "/mnt/s3backup"
-	// cfg.S3Config.Endpoint = "https://nyc3.digitaloceanspaces.com"  // Your DO endpoint
-	// cfg.S3Config.UsePathStyle = false
-
-	// Example configuration file
-	cfg = config.DefaultConfig()
-
-	// Example backup job
-	defaultJob := config.BackupJob{
-		ID:          "job-default",
-		Name:        "default-backup",
-		Description: "Default backup job for Docker volumes and application data",
+	// Add example backup job
+	exampleJob := config.BackupJob{
+		ID:          "job-example",
+		Name:        "example-backup",
+		Description: "Example backup job for demonstration",
 		Enabled:     true,
 		Schedule: config.ScheduleConfig{
-			Type:     "manual",
-			Interval: "",
-			Enabled:  false,
+			Type:     "systemd",
+			Interval: "daily",
+			Enabled:  true,
 		},
 		Directories: []config.DirectoryConfig{
 			{
@@ -600,20 +642,21 @@ func createExampleConfig() *config.BackupConfig {
 				Compression: true,
 			},
 		},
-		BucketID: "",
 		Retention: config.RetentionPolicy{
 			KeepDays:    30,
 			KeepCount:   10,
 			KeepMonthly: 6,
 		},
-		SkipDocker: false,
-		SkipS3:     false,
 		Storage: config.StorageConfig{
 			Local: true,
 			S3:    false,
 		},
+		SkipDocker: false,
+		SkipS3:     false,
 	}
 
-	cfg.Jobs = []config.BackupJob{defaultJob}
+	cfg.Jobs = []config.BackupJob{exampleJob}
+	cfg.BackupPath = "/mnt/backup"
+
 	return cfg
 }
