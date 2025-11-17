@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -202,15 +203,35 @@ func runS3Add(cmd *cobra.Command, args []string) {
 		fmt.Printf("✅ Mount point created: %s\n", newBucket.MountPoint)
 	}
 
+	// Setup S3FS (create credentials file and mount point)
+	fmt.Println("🔧 Setting up S3FS configuration...")
+	s3fsManager := s3fs.NewS3FSManager(newBucket)
+	if err := s3fsManager.SetupS3FS(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not setup S3FS: %v\n", err)
+		fmt.Println("   You may need to run with sudo for system configuration")
+		fmt.Println("   Try: sudo backtide s3 add")
+	} else {
+		fmt.Println("✅ S3FS setup completed")
+		fmt.Println("   Credentials stored in: /etc/backtide/s3-credentials/")
+	}
+
 	// Add to fstab for persistence (requires sudo)
 	fmt.Println("📝 Adding to /etc/fstab for automatic mounting...")
-	s3fsManager := s3fs.NewS3FSManager(newBucket)
 	if err := s3fsManager.AddToFstab(); err != nil {
 		fmt.Printf("⚠️  Warning: Could not add to /etc/fstab: %v\n", err)
 		fmt.Println("   You may need to run with sudo for system configuration")
 		fmt.Println("   Try: sudo backtide s3 add")
 	} else {
 		fmt.Println("✅ Added to /etc/fstab for automatic mounting")
+	}
+
+	// Reload systemd daemon to pick up fstab changes
+	fmt.Println("🔄 Reloading systemd daemon...")
+	if err := reloadSystemdDaemon(); err != nil {
+		fmt.Printf("⚠️  Warning: Could not reload systemd daemon: %v\n", err)
+		fmt.Println("   You may need to run: sudo systemctl daemon-reload")
+	} else {
+		fmt.Println("✅ Systemd daemon reloaded")
 	}
 
 	fmt.Printf("\n✅ S3 bucket configuration added successfully!\n")
@@ -509,6 +530,15 @@ func configureBucketForAdd() config.BucketConfig {
 func generateBucketID() string {
 	// Simple ID generation - in production you might want something more robust
 	return fmt.Sprintf("bucket-%d", time.Now().Unix())
+}
+
+// reloadSystemdDaemon reloads the systemd daemon to pick up fstab changes
+func reloadSystemdDaemon() error {
+	cmd := exec.Command("systemctl", "daemon-reload")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reload systemd daemon: %s, error: %w", string(output), err)
+	}
+	return nil
 }
 
 // getCredentialsFilePath returns the path to the credentials file for a bucket
