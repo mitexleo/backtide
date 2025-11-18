@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -154,16 +155,40 @@ func (js *JobScheduler) isJobDue(job config.BackupJob, now time.Time) bool {
 	}
 
 	// Parse the schedule interval
-	duration, err := time.ParseDuration(job.Schedule.Interval)
+	duration, err := parseScheduleInterval(job.Schedule.Interval)
 	if err != nil {
-		// If not a duration, handle cron expressions or other formats
-		// For now, default to daily if parsing fails
 		fmt.Printf("⚠️  Could not parse schedule for job %s: %v, defaulting to daily\n", job.Name, err)
 		duration = 24 * time.Hour
 	}
 
 	// Check if enough time has passed since last run
 	return now.Sub(lastRun) >= duration
+}
+
+// parseScheduleInterval parses human-readable schedule intervals
+func parseScheduleInterval(interval string) (time.Duration, error) {
+	// First try to parse as Go duration (e.g., "24h", "1h30m")
+	if duration, err := time.ParseDuration(interval); err == nil {
+		return duration, nil
+	}
+
+	// Handle human-readable intervals
+	switch strings.ToLower(interval) {
+	case "daily", "1d", "24h":
+		return 24 * time.Hour, nil
+	case "hourly", "1h":
+		return time.Hour, nil
+	case "weekly", "7d", "168h":
+		return 7 * 24 * time.Hour, nil
+	case "monthly", "30d", "720h":
+		return 30 * 24 * time.Hour, nil
+	case "15m", "15min":
+		return 15 * time.Minute, nil
+	case "30m", "30min":
+		return 30 * time.Minute, nil
+	default:
+		return 0, fmt.Errorf("unknown schedule interval: %s", interval)
+	}
 }
 
 // runBackupJob executes a specific backup job
