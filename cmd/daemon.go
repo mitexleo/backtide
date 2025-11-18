@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -169,9 +170,9 @@ func (js *JobScheduler) isJobDue(job config.BackupJob, now time.Time) bool {
 func (js *JobScheduler) runBackupJob(job config.BackupJob) {
 	fmt.Printf("   📦 Starting backup: %s\n", job.Name)
 
-	// Run actual backup using the backup runner
+	// Run actual backup using the backup runner with background context
 	backupRunner := backup.NewBackupRunner(*js.config)
-	metadata, err := backupRunner.RunJob(job.Name)
+	metadata, err := backupRunner.RunJob(context.Background(), job.Name)
 	if err != nil {
 		fmt.Printf("   ❌ Backup failed for job %s: %v\n", job.Name, err)
 		return

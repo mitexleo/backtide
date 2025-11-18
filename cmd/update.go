@@ -172,6 +172,14 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Println("💡 User installation complete! Make sure your PATH includes:")
 		fmt.Printf("   %s\n", filepath.Dir(currentExec))
 		fmt.Println("   You may need to restart your shell or add this to your shell profile.")
+	} else {
+		// System installation: automatically update systemd service to latest version
+		fmt.Println("🔄 Updating systemd service to latest version...")
+		if err := ensureSystemdService(""); err != nil {
+			fmt.Printf("⚠️  Warning: Could not update systemd service: %v\n", err)
+		} else {
+			fmt.Println("✅ Systemd service updated to latest version")
+		}
 	}
 
 	fmt.Printf("✅ Successfully updated Backtide from %s to %s!\n", currentVersion, latestRelease.Version)

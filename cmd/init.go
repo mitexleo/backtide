@@ -7,7 +7,6 @@ import (
 
 	"github.com/mitexleo/backtide/internal/commands"
 	"github.com/mitexleo/backtide/internal/config"
-	"github.com/mitexleo/backtide/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -97,28 +96,13 @@ func runInit(cmd *cobra.Command, args []string) {
 	if os.Geteuid() == 0 {
 		fmt.Println("\n⏰ Setting up scheduling daemon...")
 
-		// Create systemd service manager
-		manager := systemd.NewServiceManager("backtide", "", configPath, "root")
-
-		// Create systemd service directory if it doesn't exist
-		systemdDir := "/etc/systemd/system"
-		if err := os.MkdirAll(systemdDir, 0755); err != nil {
-			fmt.Printf("  ⚠️  Warning: Could not create systemd directory: %v\n", err)
+		// Automatically set up systemd service
+		fmt.Println("  🔄 Setting up systemd service...")
+		if err := ensureSystemdService(configPath); err != nil {
+			fmt.Printf("  ⚠️  Warning: Could not set up systemd service: %v\n", err)
 		} else {
-			// Create service file for continuous daemon
-			if err := manager.UpdateServiceFile(); err != nil {
-				fmt.Printf("  ⚠️  Warning: Could not set up scheduling daemon: %v\n", err)
-			} else {
-				// Enable and start service
-				if err := manager.EnableService(); err != nil {
-					fmt.Printf("  ⚠️  Warning: Could not enable daemon: %v\n", err)
-				} else if err := manager.StartService(); err != nil {
-					fmt.Printf("  ⚠️  Warning: Could not start daemon: %v\n", err)
-				} else {
-					fmt.Println("  ✅ Scheduling daemon enabled!")
-					fmt.Println("     Daemon will manage ALL backup job schedules internally")
-				}
-			}
+			fmt.Println("  ✅ Systemd service configured automatically")
+			fmt.Println("     Service will be updated automatically during future updates")
 		}
 	} else {
 		fmt.Println("\n💡 To enable automated backups, run:")

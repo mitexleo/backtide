@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/mitexleo/backtide/internal/backup"
 	"github.com/mitexleo/backtide/internal/commands"
@@ -43,6 +46,19 @@ func init() {
 }
 
 func runBackup(cmd *cobra.Command, args []string) {
+	// Set up signal handling for graceful cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-signalChan
+		fmt.Println("\n🛑 Received interrupt signal, cancelling backup...")
+		cancel()
+	}()
+
 	configPath := getConfigPath()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -58,23 +74,34 @@ func runBackup(cmd *cobra.Command, args []string) {
 	}
 
 	backupRunner := backup.NewBackupRunner(*cfg)
+	backupRunner.SetDryRun(dryRun)
 
 	// Determine which jobs to run
 	if backupJobName != "" {
 		// Run specific job
 		fmt.Printf("Running backup job: %s\n", backupJobName)
-		metadata, err := backupRunner.RunJob(backupJobName)
+		fmt.Println("💡 Press Ctrl+C to cancel the backup")
+		metadata, err := backupRunner.RunJob(ctx, backupJobName)
 		if err != nil {
-			fmt.Printf("Error running backup job: %v\n", err)
+			if ctx.Err() != nil {
+				fmt.Println("❌ Backup cancelled by user")
+			} else {
+				fmt.Printf("Error running backup job: %v\n", err)
+			}
 			os.Exit(1)
 		}
 		fmt.Printf("✅ Backup completed successfully: %s\n", metadata.ID)
 	} else if backupAll || len(cfg.Jobs) == 1 {
 		// Run all enabled jobs
 		fmt.Println("Running all enabled backup jobs...")
-		metadatas, err := backupRunner.RunAllJobs()
+		fmt.Println("💡 Press Ctrl+C to cancel the backup")
+		metadatas, err := backupRunner.RunAllJobs(ctx)
 		if err != nil {
-			fmt.Printf("Error running backup jobs: %v\n", err)
+			if ctx.Err() != nil {
+				fmt.Println("❌ Backup cancelled by user")
+			} else {
+				fmt.Printf("Error running backup jobs: %v\n", err)
+			}
 			os.Exit(1)
 		}
 		fmt.Printf("✅ All backup jobs completed successfully (%d jobs)\n", len(metadatas))
@@ -110,9 +137,14 @@ func runBackup(cmd *cobra.Command, args []string) {
 
 		if choice == "all" {
 			fmt.Println("Running all enabled backup jobs...")
-			metadatas, err := backupRunner.RunAllJobs()
+			fmt.Println("💡 Press Ctrl+C to cancel the backup")
+			metadatas, err := backupRunner.RunAllJobs(ctx)
 			if err != nil {
-				fmt.Printf("Error running backup jobs: %v\n", err)
+				if ctx.Err() != nil {
+					fmt.Println("❌ Backup cancelled by user")
+				} else {
+					fmt.Printf("Error running backup jobs: %v\n", err)
+				}
 				os.Exit(1)
 			}
 			fmt.Printf("✅ All backup jobs completed successfully (%d jobs)\n", len(metadatas))
@@ -125,14 +157,19 @@ func runBackup(cmd *cobra.Command, args []string) {
 					return
 				}
 				fmt.Printf("Running backup job: %s\n", job.Name)
-				metadata, err := backupRunner.RunJob(job.Name)
+				fmt.Println("💡 Press Ctrl+C to cancel the backup")
+				metadata, err := backupRunner.RunJob(ctx, job.Name)
 				if err != nil {
-					fmt.Printf("Error running backup job: %v\n", err)
+					if ctx.Err() != nil {
+						fmt.Println("❌ Backup cancelled by user")
+					} else {
+						fmt.Printf("Error running backup job: %v\n", err)
+					}
 					os.Exit(1)
 				}
 				fmt.Printf("✅ Backup completed successfully: %s\n", metadata.ID)
 			} else {
-				fmt.Println("Invalid selection.")
+				fmt.Println("Invalid selection")
 			}
 		}
 	}

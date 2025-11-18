@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -30,7 +31,7 @@ func NewBackupManager(cfg config.BackupConfig) *BackupManager {
 }
 
 // CreateBackup creates a backup of specified directories
-func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
+func (bm *BackupManager) CreateBackup(ctx context.Context) (*config.BackupMetadata, error) {
 	backupID := generateBackupID()
 	backupDir := filepath.Join(bm.backupPath, backupID)
 
@@ -71,6 +72,11 @@ func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 		}
 		backupFilePath := filepath.Join(backupDir, backupFileName)
 
+		// Check for cancellation
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("backup cancelled: %w", err)
+		}
+
 		// Create backup file
 		backupFile, err := os.Create(backupFilePath)
 		if err != nil {
@@ -79,19 +85,17 @@ func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 		defer backupFile.Close()
 
 		var writer io.Writer = backupFile
-		var gzipWriter *gzip.Writer
-
 		if dirConfig.Compression {
-			gzipWriter = gzip.NewWriter(backupFile)
-			writer = gzipWriter
+			gzipWriter := gzip.NewWriter(backupFile)
 			defer gzipWriter.Close()
+			writer = gzipWriter
 		}
 
 		tarWriter := tar.NewWriter(writer)
 		defer tarWriter.Close()
 
-		// Walk directory and add files to tar
-		dirSize, dirFileCount, err := bm.backupDirectory(tarWriter, dirConfig.Path, dirConfig.Name)
+		// Backup the directory
+		dirSize, dirFileCount, err := bm.backupDirectory(ctx, tarWriter, dirConfig.Path, dirConfig.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to backup directory %s: %w", dirConfig.Path, err)
 		}
@@ -142,11 +146,16 @@ func (bm *BackupManager) CreateBackup() (*config.BackupMetadata, error) {
 }
 
 // backupDirectory recursively backs up a directory to tar
-func (bm *BackupManager) backupDirectory(tarWriter *tar.Writer, sourceDir, backupName string) (int64, int, error) {
+func (bm *BackupManager) backupDirectory(ctx context.Context, tarWriter *tar.Writer, sourceDir, backupName string) (int64, int, error) {
 	var totalSize int64
 	var fileCount int
 
 	err := filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return fmt.Errorf("backup cancelled")
+		}
+
 		if err != nil {
 			return err
 		}

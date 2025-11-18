@@ -112,6 +112,9 @@ func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, e
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
+	// Debug: Log raw output to understand what containers are found
+	fmt.Printf("DEBUG: Docker ps raw output: %s\n", string(output))
+
 	var containers []config.DockerContainerInfo
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 
@@ -123,6 +126,7 @@ func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, e
 
 		parts := strings.Split(line, "|")
 		if len(parts) != 4 {
+			fmt.Printf("DEBUG: Skipping malformed line: %s\n", line)
 			continue
 		}
 
@@ -133,7 +137,10 @@ func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, e
 			Status: strings.TrimSpace(parts[3]),
 		}
 		containers = append(containers, container)
+		fmt.Printf("DEBUG: Found container: %s (%s) - %s\n", container.Name, container.ID[:12], container.Status)
 	}
+
+	fmt.Printf("DEBUG: Total containers found: %d\n", len(containers))
 
 	return containers, nil
 }

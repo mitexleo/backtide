@@ -1,9 +1,11 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mitexleo/backtide/internal/config"
 	"github.com/mitexleo/backtide/internal/docker"
@@ -14,6 +16,7 @@ import (
 type BackupRunner struct {
 	config     config.BackupConfig
 	backupPath string
+	dryRun     bool
 }
 
 // NewBackupRunner creates a new backup runner instance
@@ -21,11 +24,19 @@ func NewBackupRunner(cfg config.BackupConfig) *BackupRunner {
 	return &BackupRunner{
 		config:     cfg,
 		backupPath: cfg.BackupPath,
+		dryRun:     false,
 	}
 }
 
 // RunJob executes a specific backup job
-func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
+func (br *BackupRunner) RunJob(ctx context.Context, jobName string) (*config.BackupMetadata, error) {
+	if br.dryRun {
+		fmt.Printf("DRY RUN: Would run backup job: %s\n", jobName)
+		return &config.BackupMetadata{
+			ID:        "dry-run-simulation",
+			Timestamp: time.Now(),
+		}, nil
+	}
 	job, err := br.findJob(jobName)
 	if err != nil {
 		return nil, err
@@ -114,7 +125,7 @@ func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
 	// Step 4: Run backup
 	fmt.Println("\nStep 3: Creating backup...")
 	backupManager := NewBackupManager(jobBackupConfig)
-	metadata, err := backupManager.CreateBackup()
+	metadata, err := backupManager.CreateBackup(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create backup: %w", err)
 	}
@@ -142,12 +153,12 @@ func (br *BackupRunner) RunJob(jobName string) (*config.BackupMetadata, error) {
 }
 
 // RunAllJobs executes all enabled backup jobs
-func (br *BackupRunner) RunAllJobs() ([]config.BackupMetadata, error) {
+func (br *BackupRunner) RunAllJobs(ctx context.Context) ([]config.BackupMetadata, error) {
 	var allMetadata []config.BackupMetadata
 
 	for _, job := range br.config.Jobs {
 		if job.Enabled {
-			metadata, err := br.RunJob(job.Name)
+			metadata, err := br.RunJob(ctx, job.Name)
 			if err != nil {
 				fmt.Printf("Failed to run job %s: %v\n", job.Name, err)
 				continue
@@ -157,6 +168,11 @@ func (br *BackupRunner) RunAllJobs() ([]config.BackupMetadata, error) {
 	}
 
 	return allMetadata, nil
+}
+
+// SetDryRun enables or disables dry run mode
+func (br *BackupRunner) SetDryRun(dryRun bool) {
+	br.dryRun = dryRun
 }
 
 // RunJobCleanup cleans up old backups for a specific job
