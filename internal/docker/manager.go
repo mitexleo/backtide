@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,20 +32,27 @@ func (dm *DockerManager) StopContainers() ([]config.DockerContainerInfo, error) 
 		return nil, fmt.Errorf("failed to get running containers: %w", err)
 	}
 
+	if len(containers) == 0 {
+		fmt.Println("No running containers found to stop")
+		return []config.DockerContainerInfo{}, nil
+	}
+
+	fmt.Printf("Found %d running containers\n", len(containers))
+
 	var stoppedContainers []config.DockerContainerInfo
+	var failedContainers []string
 	currentTime := time.Now()
 
 	for _, container := range containers {
-		// Skip containers that are already stopped
-		if container.Status != "running" {
-			continue
-		}
+		fmt.Printf("Attempting to stop container: %s (%s) - Status: %s\n",
+			container.Name, container.ID[:12], container.Status)
 
-		// Stop the container
 		// Stop the container
 		cmd := exec.Command("docker", "stop", container.ID)
 		if err := cmd.Run(); err != nil {
-			return stoppedContainers, fmt.Errorf("failed to stop container %s: %w", container.Name, err)
+			fmt.Printf("Warning: Failed to stop container %s: %v\n", container.Name, err)
+			failedContainers = append(failedContainers, container.Name)
+			continue
 		}
 
 		// Update container status and timestamp
@@ -52,13 +60,24 @@ func (dm *DockerManager) StopContainers() ([]config.DockerContainerInfo, error) 
 		container.Stopped = currentTime
 		stoppedContainers = append(stoppedContainers, container)
 
-		fmt.Printf("Stopped container: %s (%s)\n", container.Name, container.ID[:12])
+		fmt.Printf("✅ Successfully stopped container: %s (%s)\n", container.Name, container.ID[:12])
 	}
 
-	// Save stopped containers to state file
-	if err := dm.saveStoppedContainers(stoppedContainers); err != nil {
-		return stoppedContainers, fmt.Errorf("failed to save container state: %w", err)
+	// Save stopped containers to state file even if some failed
+	if len(stoppedContainers) > 0 {
+		if err := dm.saveStoppedContainers(stoppedContainers); err != nil {
+			return stoppedContainers, fmt.Errorf("failed to save container state: %w", err)
+		}
 	}
+
+	// Report results
+	if len(failedContainers) > 0 {
+		fmt.Printf("Warning: Failed to stop %d containers: %s\n",
+			len(failedContainers), strings.Join(failedContainers, ", "))
+	}
+
+	fmt.Printf("✅ Successfully stopped %d out of %d containers\n",
+		len(stoppedContainers), len(containers))
 
 	return stoppedContainers, nil
 }
@@ -70,32 +89,43 @@ func (dm *DockerManager) RestoreContainers() error {
 		return fmt.Errorf("failed to load container state: %w", err)
 	}
 
+	if len(stoppedContainers) == 0 {
+		fmt.Println("No containers to restore")
+		return nil
+	}
+
+	fmt.Printf("Attempting to restore %d containers\n", len(stoppedContainers))
+
 	var restoredCount int
-	var errors []string
+	var failedContainers []string
 
 	for _, container := range stoppedContainers {
-		// Start the container
+		fmt.Printf("Attempting to start container: %s (%s)\n", container.Name, container.ID[:12])
+
 		// Start the container
 		cmd := exec.Command("docker", "start", container.ID)
 		if err := cmd.Run(); err != nil {
-			errors = append(errors, fmt.Sprintf("failed to start container %s: %v", container.Name, err))
+			fmt.Printf("Warning: Failed to start container %s: %v\n", container.Name, err)
+			failedContainers = append(failedContainers, container.Name)
 			continue
 		}
 
-		fmt.Printf("Restarted container: %s (%s)\n", container.Name, container.ID[:12])
+		fmt.Printf("✅ Successfully restarted container: %s (%s)\n", container.Name, container.ID[:12])
 		restoredCount++
 	}
 
-	// Clear the state file after successful restoration
+	// Clear the state file after restoration attempt
 	if err := dm.clearStoppedContainers(); err != nil {
-		errors = append(errors, fmt.Sprintf("failed to clear container state: %v", err))
+		fmt.Printf("Warning: Failed to clear container state: %v\n", err)
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("some containers failed to restart: %s", strings.Join(errors, "; "))
+	// Report results
+	if len(failedContainers) > 0 {
+		return fmt.Errorf("failed to restart %d containers: %s",
+			len(failedContainers), strings.Join(failedContainers, ", "))
 	}
 
-	fmt.Printf("Successfully restored %d containers\n", restoredCount)
+	fmt.Printf("✅ Successfully restored %d containers\n", restoredCount)
 	return nil
 }
 
@@ -104,16 +134,31 @@ func (dm *DockerManager) GetStoppedContainers() ([]config.DockerContainerInfo, e
 	return dm.loadStoppedContainers()
 }
 
-// getRunningContainers retrieves all running Docker containers
+// GetRunningContainers returns the list of currently running containers (for testing)
+func (dm *DockerManager) GetRunningContainers() ([]config.DockerContainerInfo, error) {
+	return dm.getRunningContainers()
+}
+
+// getRunningContainers retrieves all containers that should be stopped for backup
 func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, error) {
+	// Use docker ps without status filter to get all containers that are not stopped/exited
+	// This includes running, restarting, paused, and other active states
 	cmd := exec.Command("docker", "ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}")
+
 	output, err := cmd.Output()
 	if err != nil {
+		// Check if Docker is available
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "permission denied") {
+				return nil, fmt.Errorf("docker permission denied - try running with sudo or add user to docker group")
+			}
+			if strings.Contains(stderr, "Cannot connect") {
+				return nil, fmt.Errorf("docker daemon not running - start docker service first")
+			}
+		}
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
-
-	// Debug: Log raw output to understand what containers are found
-	fmt.Printf("DEBUG: Docker ps raw output: %s\n", string(output))
 
 	var containers []config.DockerContainerInfo
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
@@ -126,7 +171,7 @@ func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, e
 
 		parts := strings.Split(line, "|")
 		if len(parts) != 4 {
-			fmt.Printf("DEBUG: Skipping malformed line: %s\n", line)
+			fmt.Printf("Warning: Skipping malformed container line: %s\n", line)
 			continue
 		}
 
@@ -136,11 +181,18 @@ func (dm *DockerManager) getRunningContainers() ([]config.DockerContainerInfo, e
 			Image:  strings.TrimSpace(parts[2]),
 			Status: strings.TrimSpace(parts[3]),
 		}
+
+		// Skip containers that are already stopped or exited
+		if strings.Contains(strings.ToLower(container.Status), "exited") {
+			continue
+		}
+
 		containers = append(containers, container)
-		fmt.Printf("DEBUG: Found container: %s (%s) - %s\n", container.Name, container.ID[:12], container.Status)
 	}
 
-	fmt.Printf("DEBUG: Total containers found: %d\n", len(containers))
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error scanning container output: %w", err)
+	}
 
 	return containers, nil
 }
@@ -152,8 +204,22 @@ func (dm *DockerManager) saveStoppedContainers(containers []config.DockerContain
 		return fmt.Errorf("failed to marshal container data: %w", err)
 	}
 
-	if err := os.WriteFile(dm.stateFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write state file: %w", err)
+	// Ensure directory exists
+	dir := dm.getStateFileDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+
+	// Write to temporary file first, then rename for atomic operation
+	tempFile := dm.stateFile + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temporary state file: %w", err)
+	}
+
+	if err := os.Rename(tempFile, dm.stateFile); err != nil {
+		// Clean up temp file if rename fails
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to rename state file: %w", err)
 	}
 
 	return nil
@@ -185,11 +251,24 @@ func (dm *DockerManager) clearStoppedContainers() error {
 	return nil
 }
 
+// getStateFileDir returns the directory containing the state file
+func (dm *DockerManager) getStateFileDir() string {
+	return filepath.Dir(dm.stateFile)
+}
+
 // CheckDockerAvailable checks if Docker is available and running
 func (dm *DockerManager) CheckDockerAvailable() error {
 	cmd := exec.Command("docker", "info")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker is not available or not running: %w", err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		errorMsg := string(output)
+		if strings.Contains(errorMsg, "permission denied") {
+			return fmt.Errorf("docker permission denied - try running with sudo or add user to docker group")
+		}
+		if strings.Contains(errorMsg, "Cannot connect") {
+			return fmt.Errorf("docker daemon not running - start docker service first")
+		}
+		return fmt.Errorf("docker is not available: %w - output: %s", err, errorMsg)
 	}
 	return nil
 }
