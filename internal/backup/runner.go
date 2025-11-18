@@ -277,6 +277,70 @@ func (br *BackupRunner) ListBackups() ([]config.BackupMetadata, error) {
 	return allBackups, nil
 }
 
+// ListBackupsFromPath lists available backups from a specific path (config-independent)
+func (br *BackupRunner) ListBackupsFromPath(path string) ([]config.BackupMetadata, error) {
+	if path == "" {
+		return []config.BackupMetadata{}, nil
+	}
+
+	// Create a minimal backup config for the path
+	backupConfig := config.BackupConfig{
+		BackupPath: path,
+		TempPath:   "/tmp/backtide",
+	}
+
+	backupManager := NewBackupManager(backupConfig)
+	return backupManager.ListBackupsFromPath(path)
+}
+
+// DiscoverBackups automatically discovers backups from common locations
+func (br *BackupRunner) DiscoverBackups() ([]config.BackupMetadata, error) {
+	var allBackups []config.BackupMetadata
+	processedPaths := make(map[string]bool)
+
+	// Check common backup locations
+	locations := []string{
+		br.backupPath, // Primary backup path from config
+		"/var/lib/backtide/backups",
+		"/opt/backtide/backups",
+		filepath.Join(os.Getenv("HOME"), ".backtide", "backups"),
+		"/tmp/backtide",
+	}
+
+	// Also check S3 mount points if any buckets are configured
+	for _, bucket := range br.config.Buckets {
+		if bucket.MountPoint != "" {
+			locations = append(locations, bucket.MountPoint)
+		}
+	}
+
+	for _, location := range locations {
+		if location == "" || processedPaths[location] {
+			continue
+		}
+
+		// Check if location exists
+		if _, err := os.Stat(location); os.IsNotExist(err) {
+			continue
+		}
+
+		backups, err := br.ListBackupsFromPath(location)
+		if err != nil {
+			fmt.Printf("Warning: Failed to discover backups from %s: %v\n", location, err)
+			continue
+		}
+
+		if len(backups) > 0 {
+			fmt.Printf("Discovered %d backups in %s\n", len(backups), location)
+			allBackups = append(allBackups, backups...)
+		}
+
+		processedPaths[location] = true
+	}
+
+	return allBackups, nil
+}
+
 // findJob finds a job by name
 func (br *BackupRunner) findJob(jobName string) (*config.BackupJob, error) {
 	for i, job := range br.config.Jobs {

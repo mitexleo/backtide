@@ -49,10 +49,18 @@ func init() {
 
 func runList(cmd *cobra.Command, args []string) {
 	configPath := getConfigPath()
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		fmt.Printf("Error loading configuration: %v\n", err)
-		os.Exit(1)
+	var cfg *config.BackupConfig
+	var err error
+
+	if configPath != "" {
+		cfg, err = config.LoadConfig(configPath)
+		if err != nil {
+			fmt.Printf("Error loading configuration: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Create empty config for config-independent operations
+		cfg = config.DefaultConfig()
 	}
 
 	// Default to showing all if no specific flags are set
@@ -204,14 +212,28 @@ func listAvailableBackups(cfg *config.BackupConfig) {
 	fmt.Println("\n=== Available Backups ===")
 
 	backupRunner := backup.NewBackupRunner(*cfg)
-	backups, err := backupRunner.ListBackups()
+	var backups []config.BackupMetadata
+	var err error
+
+	// Try config-based discovery first
+	backups, err = backupRunner.ListBackups()
 	if err != nil {
-		fmt.Printf("Error listing backups: %v\n", err)
-		return
+		fmt.Printf("Warning: Failed to list backups from config: %v\n", err)
+	}
+
+	// If no backups found via config, try automatic discovery
+	if len(backups) == 0 {
+		fmt.Println("No backups found via configuration. Trying automatic discovery...")
+		backups, err = backupRunner.DiscoverBackups()
+		if err != nil {
+			fmt.Printf("Error discovering backups: %v\n", err)
+			return
+		}
 	}
 
 	if len(backups) == 0 {
-		fmt.Println("No backups found.")
+		fmt.Println("No backups found in any known locations.")
+		fmt.Println("Use 'backtide restore --path /path/to/backup' for path-based restoration.")
 		return
 	}
 

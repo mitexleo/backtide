@@ -233,8 +233,21 @@ func (bm *BackupManager) calculateOverallChecksum(dirs []config.BackupDirectory)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// RestoreBackup restores a backup
+// RestoreBackup restores a backup to original locations
 func (bm *BackupManager) RestoreBackup(backupID string) error {
+	return bm.restoreBackupInternal(backupID, "")
+}
+
+// RestoreBackupToPath restores a backup to a custom target path
+func (bm *BackupManager) RestoreBackupToPath(backupID string, targetPath string) error {
+	if targetPath == "" {
+		return fmt.Errorf("target path cannot be empty")
+	}
+	return bm.restoreBackupInternal(backupID, targetPath)
+}
+
+// restoreBackupInternal handles the core restoration logic
+func (bm *BackupManager) restoreBackupInternal(backupID string, targetPath string) error {
 	backupDir := filepath.Join(bm.backupPath, backupID)
 
 	// Check if backup exists
@@ -251,11 +264,26 @@ func (bm *BackupManager) RestoreBackup(backupID string) error {
 	fmt.Printf("Restoring backup: %s\n", backupID)
 	fmt.Printf("Backup date: %s\n", metadata.Timestamp.Format(time.RFC3339))
 
+	if targetPath != "" {
+		fmt.Printf("Target path: %s\n", targetPath)
+		// Validate target path
+		if err := os.MkdirAll(targetPath, 0755); err != nil {
+			return fmt.Errorf("failed to create target directory: %w", err)
+		}
+	}
+
 	for _, dir := range metadata.Directories {
-		fmt.Printf("Restoring directory: %s -> %s\n", dir.Name, dir.Path)
+		// Determine target directory
+		actualTargetPath := dir.Path
+		if targetPath != "" {
+			// Use custom target path + directory name
+			actualTargetPath = filepath.Join(targetPath, dir.Name)
+		}
+
+		fmt.Printf("Restoring directory: %s -> %s\n", dir.Name, actualTargetPath)
 
 		// Create target directory
-		if err := os.MkdirAll(dir.Path, 0755); err != nil {
+		if err := os.MkdirAll(actualTargetPath, 0755); err != nil {
 			return fmt.Errorf("failed to create target directory: %w", err)
 		}
 
@@ -271,7 +299,7 @@ func (bm *BackupManager) RestoreBackup(backupID string) error {
 		}
 
 		// Restore from tar
-		if err := bm.restoreFromTar(backupFilePath, dir.Path, dir.Compressed); err != nil {
+		if err := bm.restoreFromTar(backupFilePath, actualTargetPath, dir.Compressed); err != nil {
 			return fmt.Errorf("failed to restore %s: %w", dir.Name, err)
 		}
 
@@ -311,7 +339,7 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 			return err
 		}
 
-		// Skip the root backup name directory
+		// Skip the root backup name directory and extract relative paths
 		parts := strings.Split(header.Name, string(filepath.Separator))
 		if len(parts) > 1 {
 			relPath := filepath.Join(parts[1:]...)
@@ -325,6 +353,13 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 				continue
 			}
 
+			// Skip sockets and other special files that can't be restored
+			if header.Typeflag == tar.TypeFifo || header.Typeflag == tar.TypeChar ||
+				header.Typeflag == tar.TypeBlock || header.Typeflag == tar.TypeSymlink {
+				fmt.Printf("⚠️  Skipping special file: %s\n", header.Name)
+				continue
+			}
+
 			// Create parent directories
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return err
@@ -333,19 +368,25 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 			// Create file
 			outFile, err := os.Create(targetPath)
 			if err != nil {
-				return err
+				// If we can't create the file (permission issues), skip with warning
+				fmt.Printf("⚠️  Warning: Failed to create file %s: %v\n", targetPath, err)
+				continue
 			}
 
 			// Copy file content
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				outFile.Close()
-				return err
+				// If copy fails, remove the partial file
+				os.Remove(targetPath)
+				fmt.Printf("⚠️  Warning: Failed to copy content to %s: %v\n", targetPath, err)
+				continue
 			}
 
 			// Set file permissions
 			if err := outFile.Chmod(os.FileMode(header.Mode)); err != nil {
 				outFile.Close()
-				return err
+				fmt.Printf("⚠️  Warning: Failed to set permissions on %s: %v\n", targetPath, err)
+				// Continue anyway - better to have the file with wrong permissions than not at all
 			}
 
 			outFile.Close()
@@ -357,24 +398,34 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 
 // ListBackups lists available backups
 func (bm *BackupManager) ListBackups() ([]config.BackupMetadata, error) {
+	return bm.listBackupsFromPath(bm.backupPath)
+}
+
+// ListBackupsFromPath lists backups from a specific path (config-independent)
+func (bm *BackupManager) ListBackupsFromPath(path string) ([]config.BackupMetadata, error) {
+	return bm.listBackupsFromPath(path)
+}
+
+// listBackupsFromPath is the internal implementation for listing backups
+func (bm *BackupManager) listBackupsFromPath(path string) ([]config.BackupMetadata, error) {
 	var backups []config.BackupMetadata
 
 	// Check if backup directory exists or if backup path is empty
-	if bm.backupPath == "" {
+	if path == "" {
 		return backups, nil
 	}
-	if _, err := os.Stat(bm.backupPath); os.IsNotExist(err) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return backups, nil
 	}
 
-	entries, err := os.ReadDir(bm.backupPath)
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read backup directory: %w", err)
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), "backup-") {
-			backupDir := filepath.Join(bm.backupPath, entry.Name())
+			backupDir := filepath.Join(path, entry.Name())
 			metadata, err := bm.loadMetadata(backupDir)
 			if err != nil {
 				fmt.Printf("Warning: Failed to load metadata for %s: %v\n", entry.Name(), err)
