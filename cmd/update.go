@@ -173,12 +173,13 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Printf("   %s\n", filepath.Dir(currentExec))
 		fmt.Println("   You may need to restart your shell or add this to your shell profile.")
 	} else {
-		// System installation: automatically update systemd service to latest version
-		fmt.Println("🔄 Updating systemd service to latest version...")
-		if err := ensureSystemdService(""); err != nil {
-			fmt.Printf("⚠️  Warning: Could not update systemd service: %v\n", err)
+		// System installation: update systemd service file without restarting service
+		// This prevents hanging during update - service will use new binary on next restart
+		fmt.Println("📝 Updating systemd service file...")
+		if err := updateSystemdServiceFileOnly(""); err != nil {
+			fmt.Printf("⚠️  Warning: Could not update systemd service file: %v\n", err)
 		} else {
-			fmt.Println("✅ Systemd service updated to latest version")
+			fmt.Println("✅ Systemd service file updated (service will use new binary on next restart)")
 		}
 	}
 

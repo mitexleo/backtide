@@ -23,6 +23,37 @@ func init() {
 	commands.RegisterCommand("systemd", systemdCmd)
 }
 
+// updateSystemdServiceFileOnly updates the systemd service file without restarting the service
+// This is used during updates to prevent hanging
+func updateSystemdServiceFileOnly(configPath string) error {
+	// Only update systemd service when running as root
+	if os.Geteuid() != 0 {
+		return nil // Skip if not root
+	}
+
+	// Create systemd service manager
+	manager := systemd.NewServiceManager("backtide", "", configPath, "root")
+
+	// Check if service directory exists
+	systemdDir := "/etc/systemd/system"
+	if _, err := os.Stat(systemdDir); os.IsNotExist(err) {
+		// Systemd directory doesn't exist, skip
+		return nil
+	}
+
+	// Always update service file to latest version
+	if err := manager.UpdateServiceFile(); err != nil {
+		return fmt.Errorf("failed to update systemd service: %w", err)
+	}
+
+	// Only update the service file, don't restart the service
+	// This prevents hanging during updates
+	fmt.Println("📝 Systemd service file updated")
+	fmt.Println("💡 Service will use the new binary on next restart")
+
+	return nil
+}
+
 // ensureSystemdService ensures the systemd service is properly configured
 // This is called automatically during init and update operations
 func ensureSystemdService(configPath string) error {
