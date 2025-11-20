@@ -307,12 +307,12 @@ sudo backtide init
 
 ## Auto-Update
 
-Backtide includes automatic update checking that can notify you when new versions are available. This helps you stay up-to-date with the latest features and security fixes.
+Backtide includes automatic updates that will download and install new versions when available. This keeps your backup system up-to-date with the latest features and security fixes automatically.
 
 ### Enabling Auto-Update
 
 ```bash
-# Enable automatic update checking
+# Enable automatic updates
 backtide auto-update enable
 
 # Check current status
@@ -328,8 +328,8 @@ backtide auto-update interval 6h
 # Start daemon with auto-update enabled
 backtide daemon
 
-# The daemon will check for updates according to your configured interval
-# and notify you when new versions are available
+# The daemon will automatically download and install updates
+# according to your configured interval
 ```
 
 ### Configuration
@@ -338,7 +338,7 @@ Auto-update settings are stored in your configuration file:
 
 ```toml
 [auto_update]
-enabled = true           # Enable automatic update checking
+enabled = true           # Enable automatic updates
 check_interval = "24h"   # Check for updates every 24 hours
 ```
 
@@ -365,17 +365,17 @@ backtide auto-update interval 1h30m  # Every 1.5 hours
 
 ### How It Works
 
-- **Notification Only**: The daemon only notifies you about available updates - it does not automatically install them
-- **Safety First**: You maintain control over when updates are installed
-- **Manual Installation**: Use `backtide update` to install new versions when notified
+- **Automatic Installation**: The daemon automatically downloads and installs updates when available
+- **Safe Updates**: Updates are verified before installation
+- **Man Page Updates**: Man pages are automatically updated with each new version
 - **Configurable**: Choose how often to check for updates (from 5 minutes to 30 days)
 
 ### Best Practices
 
 1. **Enable for Production**: Keep your backup system up-to-date with security fixes
 2. **Daily Checks**: For most users, checking once per day is sufficient
-3. **Monitor Notifications**: Pay attention to update notifications in the daemon logs
-4. **Test Updates**: Always test updates in a staging environment before production
+3. **Monitor Logs**: Check daemon logs to see when updates are installed
+4. **Restart Daemon**: The daemon will use the new binary on next restart after update
 
 ## Man Page
 

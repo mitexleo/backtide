@@ -16,9 +16,9 @@ var autoUpdateCmd = &cobra.Command{
 	Short: "Manage automatic update settings",
 	Long: `Manage automatic update checking for Backtide.
 
-This command allows you to enable or disable automatic update checking
-in the daemon. When enabled, the daemon will check for new versions
-every 24 hours and notify you when updates are available.
+This command allows you to enable or disable automatic updates
+in the daemon. When enabled, the daemon will automatically download
+and install new versions when they become available.
 
 Examples:
   backtide auto-update enable    # Enable auto-update checking
@@ -33,13 +33,12 @@ var (
 		Short: "Enable automatic update checking",
 		Long: `Enable automatic update checking in the daemon.
 
-When enabled, the daemon will check for new versions every 24 hours
-(default) and notify you when updates are available. This helps you
-stay up-to-date with the latest features and security fixes.
+When enabled, the daemon will automatically download and install
+new versions when they become available. This keeps your backup
+system up-to-date with the latest features and security fixes.
 
-The daemon will only notify you about available updates - it will not
-automatically install them. You still need to run 'backtide update'
-to install the new version.`,
+The daemon will download, verify, and install updates automatically,
+including updating the man page documentation.`,
 		Run: runEnableAutoUpdate,
 	}
 
@@ -48,8 +47,8 @@ to install the new version.`,
 		Short: "Disable automatic update checking",
 		Long: `Disable automatic update checking in the daemon.
 
-This will stop the daemon from checking for new versions. You can
-still manually check for updates using 'backtide update'.`,
+This will stop the daemon from automatically updating. You can
+still manually update using 'backtide update'.`,
 		Run: runDisableAutoUpdate,
 	}
 
@@ -58,7 +57,7 @@ still manually check for updates using 'backtide update'.`,
 		Short: "Show current auto-update status",
 		Long: `Show the current automatic update checking configuration.
 
-This command displays whether auto-update is enabled and the current
+This command displays whether automatic updates are enabled and the current
 check interval.`,
 		Run: runStatusAutoUpdate,
 	}
@@ -66,7 +65,8 @@ check interval.`,
 	intervalAutoUpdateCmd = &cobra.Command{
 		Use:   "interval [duration]",
 		Short: "Set auto-update check interval",
-		Long: `Set how often the daemon should check for updates.
+		Long: `Set how often the daemon should check for and install updates.
+
 
 The interval can be specified in various formats:
   - 24h (24 hours)

@@ -243,7 +243,7 @@ func (js *JobScheduler) runBackupJob(job config.BackupJob) {
 	fmt.Printf("   📝 Job %s completed at %s\n", job.Name, time.Now().Format("15:04:05"))
 }
 
-// checkForUpdates checks for new versions and notifies if update is available
+// checkForUpdates checks for new versions and automatically updates if available
 func checkForUpdates() {
 	fmt.Println("🔍 Auto-update: Checking for new version...")
 
@@ -268,5 +268,46 @@ func checkForUpdates() {
 	}
 
 	fmt.Printf("🔄 Auto-update: New version available! %s → %s\n", currentVersion, latestRelease.Version)
-	fmt.Println("💡 Auto-update: Run 'backtide update' to install the new version")
+	fmt.Println("⬇️  Auto-update: Downloading and installing update...")
+
+	// Perform the actual update using existing logic
+	if err := performAutoUpdate(latestRelease); err != nil {
+		fmt.Printf("❌ Auto-update: Failed to install update: %v\n", err)
+	} else {
+		fmt.Printf("✅ Auto-update: Successfully updated to version %s\n", latestRelease.Version)
+		fmt.Println("💡 Auto-update: Restart the daemon to use the new version")
+	}
+}
+
+// performAutoUpdate performs the actual update process using existing update logic
+func performAutoUpdate(latestRelease *ReleaseInfo) error {
+	// Download the new binary
+	tempFile, err := downloadBinary(latestRelease.DownloadURL)
+	if err != nil {
+		return fmt.Errorf("download failed: %v", err)
+	}
+	defer os.Remove(tempFile)
+
+	// Verify the downloaded binary
+	if err := verifyBinary(tempFile, latestRelease.Version); err != nil {
+		return fmt.Errorf("binary verification failed: %v", err)
+	}
+
+	// Get current executable path
+	currentExec, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %v", err)
+	}
+
+	// Replace the binary
+	if err := replaceBinary(currentExec, tempFile); err != nil {
+		return fmt.Errorf("binary replacement failed: %v", err)
+	}
+
+	// Install man page
+	if err := installManPage(); err != nil {
+		fmt.Printf("⚠️  Auto-update: Could not install man page: %v\n", err)
+	}
+
+	return nil
 }
