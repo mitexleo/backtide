@@ -1,4 +1,4 @@
-# Backtide - Docker Backup Utility
+# Backtide - Simple Backup Utility
 
 [![GitHub Release](https://img.shields.io/github/v/release/mitexleo/backtide)](https://github.com/mitexleo/backtide/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mitexleo/backtide)](https://golang.org)
@@ -29,7 +29,7 @@ sudo mv backtide-linux-amd64 /usr/local/bin/backtide
 sudo chmod +x /usr/local/bin/backtide
 ```
 
-### 2. Initialize Configuration
+### 2. Initialize Configuration (Run as root for system-wide setup)
 ```bash
 sudo backtide init
 ```
@@ -55,10 +55,9 @@ backtide backup
 - **Multi-job backup system** - Configure multiple independent backup jobs
 - **Docker container management** - Automatic stop/start during backup
 - **S3FS integration** - Direct S3 bucket mounting for cloud storage
-- **Metadata preservation** - File permissions, ownership, and timestamps
+- **Advanced permission preservation** - File permissions, ownership (UID/GID), and timestamps
 - **Compression support** - Gzip compression for efficient storage
 - **Retention policies** - Automatic cleanup of old backups
-- **Cross-platform** - Linux, macOS, and Windows support
 
 ### Automation
 - **Systemd services** - Native Linux service management
@@ -75,9 +74,11 @@ backtide backup
 ## Installation
 
 ### Prerequisites
+- **Linux system** (Ubuntu/Debian/CentOS/RHEL/Alpine)
 - **Go 1.19+** (for building from source)
 - **s3fs-fuse** (for S3 bucket mounting)
 - **Docker** (for container backup functionality)
+- **Root access** (for ownership preservation and system setup)
 
 ### System Packages
 ```bash
@@ -271,17 +272,26 @@ sudo backtide s3 remove bucket-id
 # List available backups
 backtide list
 
-# Restore specific backup
-backtide restore backup-2024-01-15-10-30-00
+# Restore specific backup (run as root for ownership)
+sudo backtide restore backup-2024-01-15-10-30-00
 
 # Restore to different location
-backtide restore backup-2024-01-15-10-30-00 --target /restore/location
+sudo backtide restore backup-2024-01-15-10-30-00 --target /restore/location
+
+# Restore from specific path (config-independent)
+sudo backtide restore --path /mnt/backups/backup-2024-01-15-10-30-00
 ```
 
 ### System Management
 ```bash
 # Clean up old backups
 backtide cleanup
+
+# Delete specific backup
+backtide delete backup-2024-01-15-10-30-00
+
+# Force cleanup beyond retention
+backtide delete --force
 
 # Update to latest version
 backtide update
@@ -326,7 +336,7 @@ Backtide uses a modular architecture with clear separation of concerns:
 1. **Pre-backup checks** - Verify configuration and dependencies
 2. **Docker container management** - Stop containers if configured
 3. **Directory backup** - Compress and backup configured directories
-4. **Metadata preservation** - Save file permissions and ownership
+4. **Advanced metadata preservation** - Save file permissions, ownership (UID/GID), and timestamps
 5. **S3 upload** - Transfer to cloud storage (S3 mode)
 6. **Cleanup** - Remove temporary files, restart containers
 
@@ -338,18 +348,27 @@ Backtide uses a modular architecture with clear separation of concerns:
 - **No credential sharing** - Buckets cannot access each other's credentials
 - **Automatic cleanup** - Credentials removed when buckets are deleted
 
-### File Permissions
+### File Permissions & Ownership
 ```bash
 /etc/backtide/config.toml           # 0644 - Readable by all
 /etc/backtide/s3-credentials/       # 0700 - Owner only
 /etc/backtide/s3-credentials/*      # 0600 - Owner read/write only
 ```
 
+### Ownership Preservation
+Backtide preserves file ownership (UID/GID) during backup and restore:
+- **Docker containers**: UID 999, GID 999 (common for databases)
+- **Application data**: Original user/group ownership
+- **Nested permissions**: Mixed ownership trees handled correctly
+- **Root requirement**: Ownership restoration requires `sudo backtide restore`
+
 ### Best Practices
 1. **Use IAM roles** when possible instead of access keys
 2. **Regular credential rotation** for S3 providers
 3. **Monitor backup logs** for unauthorized access attempts
 4. **Secure configuration backups** of `/etc/backtide/`
+5. **Run as root** for proper ownership preservation during restore
+6. **Test restores** to verify permission and ownership integrity
 
 ## Development
 
@@ -360,11 +379,16 @@ backtide/
 │   ├── root.go         # Main command entry point
 │   ├── backup.go       # Backup operations
 │   ├── s3.go           # S3 bucket management
-│   └── jobs.go         # Job management
+│   ├── jobs.go         # Job management
+│   ├── delete.go       # Backup deletion commands
+│   └── daemon.go       # Scheduling daemon
 ├── internal/           # Internal packages
 │   ├── config/         # Configuration management
 │   ├── s3fs/           # S3FS integration
-│   └── backup/         # Core backup engine
+│   ├── backup/         # Core backup engine
+│   ├── docker/         # Docker container management
+│   ├── systemd/        # Systemd service management
+│   └── utils/          # Utility functions
 ├── main.go             # Application entry point
 └── Makefile           # Build and development tasks
 ```
@@ -437,15 +461,19 @@ sudo cat /etc/backtide/s3-credentials/passwd-s3fs-bucket-id
 cat /etc/fstab | grep s3fs
 ```
 
-**Permission Errors**
+**Permission & Ownership Errors**
 ```bash
-# Ensure proper sudo usage
+# Ensure proper sudo usage for ownership preservation
 sudo backtide s3 add
 sudo backtide init
+sudo backtide restore backup-id
 
 # Check directory permissions
 ls -la /etc/backtide/
 ls -la /etc/backtide/s3-credentials/
+
+# Verify ownership preservation
+ls -la /restored/path/ | grep "999"  # Check Docker ownership
 ```
 
 **Backup Failures**
@@ -469,6 +497,19 @@ sudo backtide update --force
 backtide version
 
 # Download manually from releases page
+```
+
+**Ownership Issues**
+```bash
+# Verify tar contains ownership info
+tar -tvf backup.tar | head -10
+
+# Check if running as root for ownership restore
+id
+
+# Verify UID/GID mappings exist on target system
+getent passwd 999
+getent group 999
 ```
 
 ### Debug Mode

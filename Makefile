@@ -40,21 +40,10 @@ install: build
 version:
 	@./backtide version 2>/dev/null || echo "Not built yet"
 
-# Cross-compilation targets
+# Production build target
 build-linux:
-	@echo "Building for Linux..."
+	@echo "Building production binary for Linux..."
 	GOOS=linux GOARCH=amd64 go build -o backtide-linux-amd64
-
-build-darwin:
-	@echo "Building for macOS..."
-	GOOS=darwin GOARCH=amd64 go build -o backtide-darwin-amd64
-
-build-windows:
-	@echo "Building for Windows..."
-	GOOS=windows GOARCH=amd64 go build -o backtide-windows-amd64.exe
-
-# Build all platforms
-build-all: build-linux build-darwin build-windows
 
 # Development targets
 dev: build

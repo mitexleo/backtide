@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/mitexleo/backtide/internal/commands"
@@ -293,22 +292,8 @@ func parseReleaseJSON(data []byte) (string, string, error) {
 
 // getBinaryNameForPlatform returns the appropriate binary name for the current platform
 func getBinaryNameForPlatform() string {
-	os := runtime.GOOS
-	arch := runtime.GOARCH
-
-	switch os {
-	case "linux":
-		if arch == "amd64" {
-			return "backtide-linux-amd64"
-		}
-		return "backtide"
-	case "darwin":
-		return "backtide-darwin-amd64"
-	case "windows":
-		return "backtide-windows-amd64.exe"
-	default:
-		return "backtide"
-	}
+	// Backtide is Linux-only, always return Linux binary name
+	return "backtide-linux-amd64"
 }
 
 // downloadBinary downloads the binary to a temporary file

@@ -1,4 +1,4 @@
-name: CI
+name: CI - Linux Only
 
 on:
   push:
@@ -36,19 +36,9 @@ jobs:
           ./backtide --help
           ./backtide version || true
 
-  build-matrix:
-    name: Build Matrix
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: backtide-linux-amd64
-          - os: macos-latest
-            artifact_name: backtide-darwin-amd64
-          - os: windows-latest
-            artifact_name: backtide-windows-amd64.exe
+  build-linux:
+    name: Build Linux Binary
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -59,12 +49,12 @@ jobs:
         with:
           go-version: "1.25.3"
 
-      - name: Build for ${{ matrix.os }}
-        run: go build -o ${{ matrix.artifact_name }}
+      - name: Build Linux binary
+        run: go build -o backtide-linux-amd64
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          name: backtide-linux-amd64
+          path: backtide-linux-amd64
           retention-days: 7

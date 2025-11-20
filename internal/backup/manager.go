@@ -313,28 +313,10 @@ func (bm *BackupManager) restoreBackupInternal(backupID string, targetPath strin
 
 		fmt.Printf("Restoring directory: %s -> %s\n", dir.Name, actualTargetPath)
 
-		// Create target directory with proper permissions if available
-		targetPerm := os.FileMode(0755)
-		if dir.Permissions != nil {
-			if rootPerm, exists := dir.Permissions[""]; exists {
-				if mode, err := parseFileMode(rootPerm.Mode); err == nil {
-					targetPerm = mode
-				}
-			}
-		}
-		if err := os.MkdirAll(actualTargetPath, targetPerm); err != nil {
+		// Create target directory with minimal permissions first
+		// Actual permissions and ownership will be set during tar extraction
+		if err := os.MkdirAll(actualTargetPath, 0755); err != nil {
 			return fmt.Errorf("failed to create target directory: %w", err)
-		}
-
-		// Set ownership for target directory if running as root
-		if os.Geteuid() == 0 && dir.Permissions != nil {
-			if rootPerm, exists := dir.Permissions[""]; exists {
-				if err := os.Chown(actualTargetPath, rootPerm.UID, rootPerm.GID); err != nil {
-					fmt.Printf("⚠️  Warning: Failed to set ownership for directory %s: %v\n", actualTargetPath, err)
-				} else {
-					fmt.Printf("   ✅ Set directory ownership: %s -> UID:%d GID:%d\n", dir.Name, rootPerm.UID, rootPerm.GID)
-				}
-			}
 		}
 
 		// Find backup file
@@ -400,6 +382,20 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 				if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
 					return err
 				}
+				// Set directory ownership (Linux-only, requires root)
+				if header.Uid != 0 || header.Gid != 0 {
+					if os.Geteuid() == 0 {
+						if err := os.Chown(targetPath, header.Uid, header.Gid); err != nil {
+							fmt.Printf("⚠️  Warning: Failed to set directory ownership for %s: %v\n", targetPath, err)
+						} else {
+							fmt.Printf("   ✅ Set directory ownership: %s -> UID:%d GID:%d\n",
+								filepath.Base(targetPath), header.Uid, header.Gid)
+						}
+					} else {
+						fmt.Printf("⚠️  Warning: Cannot set directory ownership for %s (UID:%d GID:%d) - run as root\n",
+							filepath.Base(targetPath), header.Uid, header.Gid)
+					}
+				}
 				continue
 			}
 
@@ -410,7 +406,8 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 				continue
 			}
 
-			// Create parent directories
+			// Create parent directories with minimal permissions first
+			// Actual permissions will be set when we encounter them in the tar
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return err
 			}
@@ -433,15 +430,15 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 			}
 			outFile.Close()
 
-			// Set file permissions and ownership
+			// Set file permissions
 			if err := os.Chmod(targetPath, os.FileMode(header.Mode)); err != nil {
 				fmt.Printf("⚠️  Warning: Failed to set permissions on %s: %v\n", targetPath, err)
 				// Continue anyway - better to have the file with wrong permissions than not at all
 			}
 
-			// Set file ownership (requires root privileges)
+			// Set file ownership (Linux-only, requires root)
 			if header.Uid != 0 || header.Gid != 0 {
-				if os.Geteuid() == 0 { // Only change ownership if running as root
+				if os.Geteuid() == 0 {
 					if err := os.Chown(targetPath, header.Uid, header.Gid); err != nil {
 						fmt.Printf("⚠️  Warning: Failed to set ownership on %s: %v\n", targetPath, err)
 						fmt.Printf("   File should be owned by UID:%d GID:%d\n", header.Uid, header.Gid)
@@ -453,6 +450,7 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 						filepath.Base(targetPath), header.Uid, header.Gid)
 				}
 			}
+
 		}
 	}
 
