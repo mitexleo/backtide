@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mitexleo/backtide/internal/config"
@@ -106,12 +108,35 @@ func (bm *BackupManager) CreateBackup(ctx context.Context) (*config.BackupMetada
 			return nil, fmt.Errorf("failed to calculate checksum: %w", err)
 		}
 
+		// Collect permission information for critical directories
+		permissions := make(map[string]config.FilePerm)
+		err = filepath.Walk(dirConfig.Path, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // Skip files we can't access
+			}
+
+			if sysStat, ok := info.Sys().(*syscall.Stat_t); ok {
+				relPath, _ := filepath.Rel(dirConfig.Path, path)
+				if relPath == "." {
+					relPath = "" // Root directory
+				}
+				permissions[relPath] = config.FilePerm{
+					Mode:    info.Mode().String(),
+					UID:     int(sysStat.Uid),
+					GID:     int(sysStat.Gid),
+					Size:    info.Size(),
+					ModTime: info.ModTime().Format(time.RFC3339),
+				}
+			}
+			return nil
+		})
+
 		backupDirInfo := config.BackupDirectory{
 			Path:        dirConfig.Path,
 			Name:        dirConfig.Name,
 			Size:        dirSize,
 			FileCount:   dirFileCount,
-			Permissions: make(map[string]config.FilePerm),
+			Permissions: permissions,
 			Checksum:    checksum,
 			Compressed:  dirConfig.Compression,
 		}
@@ -178,6 +203,12 @@ func (bm *BackupManager) backupDirectory(ctx context.Context, tarWriter *tar.Wri
 			return err
 		}
 		header.Name = tarPath
+
+		// Preserve ownership information
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			header.Uid = int(stat.Uid)
+			header.Gid = int(stat.Gid)
+		}
 
 		// Write header
 		if err := tarWriter.WriteHeader(header); err != nil {
@@ -282,9 +313,28 @@ func (bm *BackupManager) restoreBackupInternal(backupID string, targetPath strin
 
 		fmt.Printf("Restoring directory: %s -> %s\n", dir.Name, actualTargetPath)
 
-		// Create target directory
-		if err := os.MkdirAll(actualTargetPath, 0755); err != nil {
+		// Create target directory with proper permissions if available
+		targetPerm := os.FileMode(0755)
+		if dir.Permissions != nil {
+			if rootPerm, exists := dir.Permissions[""]; exists {
+				if mode, err := parseFileMode(rootPerm.Mode); err == nil {
+					targetPerm = mode
+				}
+			}
+		}
+		if err := os.MkdirAll(actualTargetPath, targetPerm); err != nil {
 			return fmt.Errorf("failed to create target directory: %w", err)
+		}
+
+		// Set ownership for target directory if running as root
+		if os.Geteuid() == 0 && dir.Permissions != nil {
+			if rootPerm, exists := dir.Permissions[""]; exists {
+				if err := os.Chown(actualTargetPath, rootPerm.UID, rootPerm.GID); err != nil {
+					fmt.Printf("⚠️  Warning: Failed to set ownership for directory %s: %v\n", actualTargetPath, err)
+				} else {
+					fmt.Printf("   ✅ Set directory ownership: %s -> UID:%d GID:%d\n", dir.Name, rootPerm.UID, rootPerm.GID)
+				}
+			}
 		}
 
 		// Find backup file
@@ -381,19 +431,51 @@ func (bm *BackupManager) restoreFromTar(tarPath, targetDir string, compressed bo
 				fmt.Printf("⚠️  Warning: Failed to copy content to %s: %v\n", targetPath, err)
 				continue
 			}
+			outFile.Close()
 
-			// Set file permissions
-			if err := outFile.Chmod(os.FileMode(header.Mode)); err != nil {
-				outFile.Close()
+			// Set file permissions and ownership
+			if err := os.Chmod(targetPath, os.FileMode(header.Mode)); err != nil {
 				fmt.Printf("⚠️  Warning: Failed to set permissions on %s: %v\n", targetPath, err)
 				// Continue anyway - better to have the file with wrong permissions than not at all
 			}
 
-			outFile.Close()
+			// Set file ownership (requires root privileges)
+			if header.Uid != 0 || header.Gid != 0 {
+				if os.Geteuid() == 0 { // Only change ownership if running as root
+					if err := os.Chown(targetPath, header.Uid, header.Gid); err != nil {
+						fmt.Printf("⚠️  Warning: Failed to set ownership on %s: %v\n", targetPath, err)
+						fmt.Printf("   File should be owned by UID:%d GID:%d\n", header.Uid, header.Gid)
+					} else {
+						fmt.Printf("   ✅ Set ownership: %s -> UID:%d GID:%d\n", filepath.Base(targetPath), header.Uid, header.Gid)
+					}
+				} else {
+					fmt.Printf("⚠️  Warning: Cannot set ownership for %s (UID:%d GID:%d) - run as root\n",
+						filepath.Base(targetPath), header.Uid, header.Gid)
+				}
+			}
 		}
 	}
 
 	return nil
+}
+
+// parseFileMode parses a file mode string into os.FileMode
+func parseFileMode(modeStr string) (os.FileMode, error) {
+	// Handle string representations like "drwxr-xr-x" or octal like "0755"
+	if len(modeStr) > 0 {
+		// Try to parse as octal first
+		if mode, err := strconv.ParseUint(modeStr, 8, 32); err == nil {
+			return os.FileMode(mode), nil
+		}
+		// Try to parse symbolic mode (crude approximation)
+		if strings.HasPrefix(modeStr, "d") {
+			return 0755, nil // Directory
+		}
+		if strings.HasPrefix(modeStr, "-") {
+			return 0644, nil // Regular file
+		}
+	}
+	return 0755, fmt.Errorf("unable to parse file mode: %s", modeStr)
 }
 
 // ListBackups lists available backups
