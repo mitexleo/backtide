@@ -13,6 +13,7 @@ A powerful backup utility designed specifically for Docker-based applications, f
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [Man Page](#man-page)
 - [Architecture](#architecture)
 - [Security](#security)
 - [Development](#development)
@@ -302,6 +303,40 @@ backtide version
 # Initialize system configuration
 sudo backtide init
 ```
+
+## Man Page
+
+Backtide includes comprehensive man page documentation that can be accessed after installation:
+
+```bash
+# View the man page
+man backtide
+
+# View specific sections
+man backtide | grep -A 10 "EXAMPLES"
+
+# Install man page manually
+sudo make install-man
+```
+
+The man page provides:
+- Complete command reference with all options and subcommands
+- Detailed examples for common use cases
+- Configuration file documentation
+- Permission and ownership preservation details
+- Docker container management information
+- S3 storage provider setup guides
+- Troubleshooting information
+
+For quick reference, the man page includes:
+- **SYNOPSIS**: Command usage patterns
+- **DESCRIPTION**: Overview of features and capabilities
+- **OPTIONS**: Global command-line flags
+- **COMMANDS**: All available subcommands with their options
+- **EXAMPLES**: Practical usage examples
+- **FILES**: Important configuration and data files
+- **ENVIRONMENT**: Environment variables used
+- **EXIT STATUS**: Return codes and their meanings
 
 ## Architecture
 

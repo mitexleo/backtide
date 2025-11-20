@@ -1,0 +1,398 @@
+.TH BACKTIDE 1 "January 2025" "Backtide 1.0" "Backup Utility Manual"
+.SH NAME
+backtide \- comprehensive backup utility for Docker applications with S3 integration
+.SH SYNOPSIS
+.B backtide
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]...
+.br
+.B backtide
+[\fIOPTIONS\fR] backup [\fI--job\fR \fIJOB-NAME\fR | \fI--all\fR]
+.br
+.B backtide
+[\fIOPTIONS\fR] restore \fIBACKUP-ID\fR [\fI--target\fR \fIPATH\fR]
+.br
+.B backtide
+[\fIOPTIONS\fR] list [\fI--backups\fR | \fI--jobs\fR]
+.br
+.B backtide
+[\fIOPTIONS\fR] delete \fIBACKUP-ID\fR [\fI--force\fR]
+.br
+.B backtide
+[\fIOPTIONS\fR] jobs \fISUBCOMMAND\fR [\fIARGS\fR]...
+.br
+.B backtide
+[\fIOPTIONS\fR] s3 \fISUBCOMMAND\fR [\fIARGS\fR]...
+.br
+.B backtide
+[\fIOPTIONS\fR] init
+.br
+.B backtide
+[\fIOPTIONS\fR] update
+.br
+.B backtide
+[\fIOPTIONS\fR] version
+.SH DESCRIPTION
+.B backtide
+is a powerful backup utility designed specifically for Docker-based applications,
+featuring S3FS integration, metadata preservation, and automated scheduling. It
+provides comprehensive backup solutions with advanced features like Docker
+container management, file permission and ownership preservation (UID/GID),
+and cloud storage integration.
+.PP
+Key features include:
+.IP \(bu 3
+Multi-job backup system with independent configurations
+.IP \(bu 3
+Automatic Docker container stop/start during backup operations
+.IP \(bu 3
+S3FS integration for cloud storage (AWS, Backblaze B2, Wasabi, DigitalOcean, MinIO)
+.IP \(bu 3
+Advanced permission preservation (file permissions, ownership UID/GID, timestamps)
+.IP \(bu 3
+Compression support with Gzip
+.IP \(bu 3
+Retention policy management
+.IP \(bu 3
+Systemd and cron integration for automation
+.IP \(bu 3
+Self-updating capability
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIFILE\fR
+Specify configuration file (default: /etc/backtide/config.toml or ~/.backtide.toml)
+.TP
+.BR \-v ", " \-\-verbose
+Enable verbose output for detailed logging
+.TP
+.BR \-\-dry\-run
+Show what would be done without making changes
+.TP
+.BR \-f ", " \-\-force
+Force operation, skip confirmation prompts
+.TP
+.BR \-h ", " \-\-help
+Show help information
+.SH COMMANDS
+.SS "Backup Operations"
+.TP
+.BR backup " [" \-\-job " " \fIJOB-NAME\fR " | " \-\-all "]"
+Run backup operations. Without arguments, shows interactive job selection.
+.RS
+.TP
+.BR \-\-job ", " \-j " " \fIJOB-NAME\fR
+Run specific backup job by name
+.TP
+.BR \-\-all ", " \-a
+Run all enabled backup jobs
+.RE
+.TP
+.BR restore " " \fIBACKUP-ID\fR " [" \-\-target " " \fIPATH\fR "]"
+Restore specific backup. Run as root for proper ownership preservation.
+.RS
+.TP
+.BR \-\-target " " \fIPATH\fR
+Restore to different location (default: original paths)
+.RE
+.TP
+.BR list " [" \-\-backups " | " \-\-jobs "]"
+List available backups or configured jobs.
+.RS
+.TP
+.BR \-\-backups
+List all available backups with details
+.TP
+.BR \-\-jobs
+List configured backup jobs
+.RE
+.TP
+.BR delete " " \fIBACKUP-ID\fR " [" \-\-force "]"
+Delete specific backup or manage backup cleanup.
+.RS
+.TP
+.BR \-\-job ", " \-j " " \fIJOB-NAME\fR
+Delete backups for specific job
+.TP
+.BR \-\-all ", " \-a
+Delete all backups for specified job
+.TP
+.BR \-\-force ", " \-f
+Force deletion beyond retention policies
+.TP
+.BR \-\-dry\-run
+Show what would be deleted without making changes
+.RE
+.TP
+.BR cleanup
+Clean up old backups according to retention policies
+.SS "Job Management"
+.TP
+.BR jobs " " \fISUBCOMMAND\fR
+Manage backup job configurations.
+.RS
+.TP
+.BR list
+List all configured backup jobs
+.TP
+.BR show " " \fIJOB-NAME\fR
+Show detailed information about specific job
+.TP
+.BR add
+Add new backup job interactively
+.TP
+.BR enable " " \fIJOB-NAME\fR
+Enable specific backup job
+.TP
+.BR disable " " \fIJOB-NAME\fR
+Disable specific backup job
+.RE
+.SS "S3 Bucket Management"
+.TP
+.BR s3 " " \fISUBCOMMAND\fR
+Manage S3 bucket configurations (requires root).
+.RS
+.TP
+.BR list
+List configured S3 buckets
+.TP
+.BR add
+Add new S3 bucket interactively
+.TP
+.BR test " " \fIBUCKET-ID\fR
+Test connectivity to specific bucket
+.TP
+.BR remove " " \fIBUCKET-ID\fR
+Remove bucket configuration
+.RE
+.SS "System Management"
+.TP
+.BR init
+Initialize system configuration (requires root)
+.TP
+.BR update
+Update to latest version
+.TP
+.BR version
+Show version information
+.TP
+.BR systemd " " \fISUBCOMMAND\fR
+Manage systemd services for automated backups
+.TP
+.BR cron " " \fISUBCOMMAND\fR
+Manage cron jobs for automated backups
+.TP
+.BR daemon
+Start scheduling daemon for automated backups
+.SH CONFIGURATION
+Backtide uses TOML configuration files. The system configuration is typically
+located at
+.B /etc/backtide/config.toml
+and user configuration at
+.B ~/.backtide.toml.
+.PP
+Configuration structure includes:
+.IP \(bu 3
+Global settings (backup_path, temp_path)
+.IP \(bu 3
+S3 bucket configurations with credentials
+.IP \(bu 3
+Backup job definitions with schedules and retention policies
+.IP \(bu 3
+Directory specifications with compression options
+.SH PERMISSION PRESERVATION
+Backtide preserves file permissions, ownership (UID/GID), and timestamps during
+backup and restore operations. This is critical for Docker containers and
+applications that rely on specific user/group ownership.
+.PP
+Key permission handling features:
+.IP \(bu 3
+Preserves UID/GID information in tar headers
+.IP \(bu 3
+Restores exact ownership when running as root
+.IP \(bu 3
+Handles mixed ownership trees (e.g., parent 1000:1000, child 999:999)
+.IP \(bu 3
+Common Docker UIDs: 999:999 (databases), 1000:1000 (applications)
+.PP
+.B IMPORTANT:
+Restore operations require root privileges for proper ownership restoration.
+Use
+.B sudo backtide restore
+to ensure files have correct UID/GID.
+.SH DOCKER CONTAINER MANAGEMENT
+Backtide automatically manages Docker containers during backup operations:
+.IP \(bu 3
+Stops containers before backup to ensure data consistency
+.IP \(bu 3
+Restarts containers after backup completion
+.IP \(bu 3
+Handles containers in various states (Running, Restarting, Up X minutes)
+.IP \(bu 3
+Continues with other containers if some fail to stop/start
+.IP \(bu 3
+Maintains container state persistence through atomic file operations
+.SH S3 STORAGE PROVIDERS
+Supported S3-compatible storage providers:
+.IP \(bu 3
+AWS S3
+.IP \(bu 3
+Backblaze B2 (requires use_path_style = true)
+.IP \(bu 3
+Wasabi
+.IP \(bu 3
+DigitalOcean Spaces
+.IP \(bu 3
+MinIO (requires use_path_style = true)
+.PP
+Credentials are stored securely in
+.B /etc/backtide/s3-credentials/
+with 0600 permissions.
+.SH EXAMPLES
+.TP
+.B Basic backup operations
+.nf
+# Run all enabled backup jobs
+backtide backup
+
+# Run specific job
+backtide backup --job "Docker Volumes Backup"
+
+# Dry run to see what would be backed up
+backtide backup --dry-run
+.fi
+.TP
+.B Restore operations
+.nf
+# List available backups
+backtide list --backups
+
+# Restore specific backup (as root for ownership)
+sudo backtide restore backup-2024-01-15-10-30-00
+
+# Restore to different location
+sudo backtide restore backup-2024-01-15-10-30-00 --target /restore/location
+.fi
+.TP
+.B Job management
+.nf
+# List configured jobs
+backtide jobs list
+
+# Add new job interactively
+backtide jobs add
+
+# Show job details
+backtide jobs show "Docker Volumes Backup"
+.fi
+.TP
+.B S3 bucket management
+.nf
+# List configured buckets (requires root)
+sudo backtide s3 list
+
+# Add new bucket interactively
+sudo backtide s3 add
+
+# Test bucket connectivity
+backtide s3 test bucket-id
+.fi
+.TP
+.B Backup deletion
+.nf
+# Delete specific backup
+backtide delete backup-2024-01-15-10-30-00
+
+# Delete all backups for specific job
+backtide delete --job "Docker Volumes Backup" --all
+
+# Force cleanup beyond retention
+backtide delete --force
+
+# Dry run deletion
+backtide delete --job "Docker Volumes Backup" --all --dry-run
+.fi
+.TP
+.B System setup
+.nf
+# Initialize system configuration
+sudo backtide init
+
+# Update to latest version
+backtide update
+
+# Show version information
+backtide version
+.fi
+.SH FILES
+.TP
+.B /etc/backtide/config.toml
+System-wide configuration file
+.TP
+.B /etc/backtide/s3-credentials/
+Directory containing S3 credential files (0600 permissions)
+.TP
+.B ~/.backtide.toml
+User-specific configuration file
+.TP
+.B /var/lib/backtide/
+Default backup storage location (local mode)
+.TP
+.B /mnt/s3backup/
+Default S3 mount point (S3 mode)
+.TP
+.B /tmp/backtide/
+Temporary directory for backup operations
+.SH ENVIRONMENT
+.TP
+.B HOME
+Used to locate user configuration file when system configuration is not available
+.TP
+.B SUDO_USER
+Used to determine original user when running with sudo for proper permission handling
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+General error
+.TP
+.B 2
+Configuration error
+.TP
+.B 3
+Permission error
+.TP
+.B 4
+Backup/restore operation failed
+.TP
+.B 5
+Docker operation failed
+.TP
+.B 6
+S3 operation failed
+.SH NOTES
+.IP \(bu 3
+Backtide is designed for Linux systems only
+.IP \(bu 3
+Root privileges are required for ownership preservation during restore
+.IP \(bu 3
+Docker must be installed and running for container management
+.IP \(bu 3
+s3fs-fuse must be installed for S3 bucket mounting
+.IP \(bu 3
+System configuration is recommended for production use
+.IP \(bu 3
+Test restores are recommended to verify permission and ownership integrity
+.SH BUGS
+Report bugs at the GitHub repository: https://github.com/mitexleo/backtide/issues
+.SH SEE ALSO
+.BR docker (1),
+.BR s3fs (1),
+.BR systemctl (1),
+.BR cron (8)
+.SH AUTHORS
+Backtide was developed by mitexleo and contributors.
+.SH COPYRIGHT
+Copyright © 2025 mitexleo. License: AGPL 3.0.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
