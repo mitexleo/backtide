@@ -33,6 +33,10 @@ according to its individual schedule.`,
 	Run: runDaemon,
 }
 
+var (
+	daemonAutoUpdate bool
+)
+
 func init() {
 	// Register with command registry
 	commands.RegisterCommand("daemon", daemonCmd)
@@ -56,6 +60,11 @@ func runDaemon(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Check if auto-update is enabled in config
+	if cfg.AutoUpdate.Enabled {
+		fmt.Printf("🔄 Auto-update enabled (checking every %v)\n", cfg.AutoUpdate.CheckInterval)
+	}
+
 	// Create and start job scheduler
 	scheduler := NewJobScheduler(cfg)
 	if err := scheduler.Start(); err != nil {
@@ -67,11 +76,35 @@ func runDaemon(cmd *cobra.Command, args []string) {
 	fmt.Printf("📊 Monitoring %d backup jobs\n", len(cfg.Jobs))
 	fmt.Println()
 
+	// Start auto-update checker if enabled in config
+	var updateTicker *time.Ticker
+	var updateStopChan chan struct{}
+	if cfg.AutoUpdate.Enabled {
+		updateTicker = time.NewTicker(cfg.AutoUpdate.CheckInterval)
+		updateStopChan = make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-updateStopChan:
+					return
+				case <-updateTicker.C:
+					checkForUpdates()
+				}
+			}
+		}()
+	}
+
 	// Wait for shutdown signal
 	<-signalChan
 
 	fmt.Println("\n🛑 Shutting down daemon...")
 	scheduler.Stop()
+
+	if updateTicker != nil {
+		updateTicker.Stop()
+		close(updateStopChan)
+	}
+
 	fmt.Println("✅ Daemon stopped gracefully")
 }
 
@@ -208,4 +241,32 @@ func (js *JobScheduler) runBackupJob(job config.BackupJob) {
 
 	// Log the execution
 	fmt.Printf("   📝 Job %s completed at %s\n", job.Name, time.Now().Format("15:04:05"))
+}
+
+// checkForUpdates checks for new versions and notifies if update is available
+func checkForUpdates() {
+	fmt.Println("🔍 Auto-update: Checking for new version...")
+
+	// Get current version
+	currentVersion := version
+	if currentVersion == "dev" {
+		fmt.Println("⚠️  Auto-update: Skipping update check for development build")
+		return
+	}
+
+	// Use the existing update command logic by calling the same function
+	latestRelease, err := getLatestRelease()
+	if err != nil {
+		fmt.Printf("⚠️  Auto-update: Failed to check for updates: %v\n", err)
+		return
+	}
+
+	// Check if update is available
+	if currentVersion == latestRelease.Version {
+		fmt.Println("✅ Auto-update: Already on latest version")
+		return
+	}
+
+	fmt.Printf("🔄 Auto-update: New version available! %s → %s\n", currentVersion, latestRelease.Version)
+	fmt.Println("💡 Auto-update: Run 'backtide update' to install the new version")
 }

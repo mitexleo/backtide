@@ -30,12 +30,15 @@ Features:
 - Metadata and permission preservation
 - Retention policy management
 - Systemd and cron integration
+- Automatic update checking
 
 Example usage:
   backtide backup --config /etc/backtide/config.toml
   backtide restore backup-2024-01-15-10-30-00
   backtide list
-  backtide cleanup`,
+  backtide cleanup
+  backtide auto-update enable    # Enable automatic update checking
+  backtide auto-update disable   # Disable automatic update checking`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
@@ -71,6 +74,7 @@ func init() {
 // registerCommands registers all commands with the centralized registry
 func registerCommands() {
 	// Register all top-level commands with the registry
+	commands.RegisterCommand("auto-update", autoUpdateCmd)
 	commands.RegisterCommand("backup", backupCmd)
 	commands.RegisterCommand("cleanup", cleanupCmd)
 	commands.RegisterCommand("cron", cronCmd)

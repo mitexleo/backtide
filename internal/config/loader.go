@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -15,6 +16,10 @@ func DefaultConfig() *BackupConfig {
 		TempPath:   "/tmp/backtide",
 		Jobs:       []BackupJob{},
 		Buckets:    []BucketConfig{},
+		AutoUpdate: AutoUpdateConfig{
+			Enabled:       false,          // Disabled by default for safety
+			CheckInterval: 24 * time.Hour, // Check once per day
+		},
 	}
 }
 

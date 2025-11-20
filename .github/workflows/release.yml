@@ -64,13 +64,49 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Generate changelog from git commits since last tag
+          # Generate structured changelog from git commits since last tag
           LAST_TAG=${{ steps.current_version.outputs.LATEST_TAG }}
-          CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${LAST_TAG}..HEAD 2>/dev/null || git log --pretty=format:"- %s (%h)" -n 10)
 
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="No significant changes detected"
+          # Get commits with conventional commit format parsing
+          FEATURES=$(git log --pretty=format:"- %s" ${LAST_TAG}..HEAD 2>/dev/null | grep -iE "^feat" || true)
+          FIXES=$(git log --pretty=format:"- %s" ${LAST_TAG}..HEAD 2>/dev/null | grep -iE "^fix" || true)
+          DOCS=$(git log --pretty=format:"- %s" ${LAST_TAG}..HEAD 2>/dev/null | grep -iE "^docs" || true)
+          OTHER=$(git log --pretty=format:"- %s" ${LAST_TAG}..HEAD 2>/dev/null | grep -vE "^(feat|fix|docs)" || true)
+
+          # Build structured changelog
+          CHANGELOG=""
+
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG+="### 🚀 New Features\n$FEATURES\n\n"
           fi
+
+          if [ -n "$FIXES" ]; then
+            CHANGELOG+="### 🐛 Bug Fixes\n$FIXES\n\n"
+          fi
+
+          if [ -n "$DOCS" ]; then
+            CHANGELOG+="### 📚 Documentation\n$DOCS\n\n"
+          fi
+
+          if [ -n "$OTHER" ]; then
+            CHANGELOG+="### 🔧 Other Changes\n$OTHER\n\n"
+          fi
+
+          # If no structured changes found, fall back to simple format
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${LAST_TAG}..HEAD 2>/dev/null || git log --pretty=format:"- %s (%h)" -n 10)
+            if [ -z "$CHANGELOG" ]; then
+              CHANGELOG="No significant changes detected"
+            else
+              CHANGELOG="### 📋 Changes\n$CHANGELOG\n\n"
+            fi
+          fi
+
+          # Add commit count and date range for context
+          COMMIT_COUNT=$(git rev-list --count ${LAST_TAG}..HEAD 2>/dev/null || echo "0")
+          CHANGELOG+="---\n"
+          CHANGELOG+="**Statistics**: $COMMIT_COUNT commits since $LAST_TAG\n"
+          CHANGELOG+="**Generated**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')\n"
 
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
@@ -107,8 +143,42 @@ jobs:
 
             Automated release of Backtide backup utility
 
-            ## Changes since last release:
+            ## 📝 Release Notes
+
             ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ## 📦 Installation
+
+            ```bash
+            # Download latest release
+            wget https://github.com/mitexleo/backtide/releases/latest/download/backtide-linux-amd64
+            sudo mv backtide-linux-amd64 /usr/local/bin/backtide
+            sudo chmod +x /usr/local/bin/backtide
+
+            # Or update existing installation
+            backtide update
+            ```
+
+            ## 🔧 Usage
+
+            ```bash
+            # Initialize configuration
+            sudo backtide init
+
+            # Add S3 bucket
+            sudo backtide s3 add
+
+            # Create backup job
+            backtide jobs add
+
+            # Run backup
+            backtide backup
+            ```
+
+            ## 📚 Documentation
+
+            - Full documentation: [README.md](https://github.com/mitexleo/backtide/blob/main/README.md)
+            - Man page: `man backtide` (after installation)
           draft: false
           prerelease: false
           files: |

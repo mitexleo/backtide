@@ -1,0 +1,124 @@
+# Backtide Example Configuration
+# Copy this file to /etc/backtide/config.toml and customize for your needs
+
+# Global settings
+backup_path = "/var/lib/backtide"
+temp_path = "/tmp/backtide"
+
+# Automatic update settings
+[auto_update]
+enabled = true                    # Enable automatic update checking
+check_interval = "24h"            # Check for updates every 24 hours
+
+# S3 bucket configurations
+[[buckets]]
+id = "bucket-production"
+name = "Production Backup"
+bucket = "my-backup-bucket"
+region = "us-east-1"
+access_key = "AKIAIOSFODNN7EXAMPLE"  # Replace with your access key
+secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # Replace with your secret key
+endpoint = ""
+mount_point = "/mnt/s3backup"
+use_path_style = false
+provider = "AWS S3"
+
+# Backup job configurations
+[[jobs]]
+id = "job-docker-backup"
+name = "Docker Volumes Backup"
+description = "Backup all Docker volumes and application data"
+enabled = true
+bucket_id = "bucket-production"
+
+# Schedule configuration
+[jobs.schedule]
+type = "daily"
+interval = "24h"
+enabled = true
+
+# Directories to backup
+[[jobs.directories]]
+path = "/var/lib/docker/volumes"
+name = "docker-volumes"
+compression = true
+
+[[jobs.directories]]
+path = "/opt/app/data"
+name = "app-data"
+compression = true
+
+# Retention policy
+[jobs.retention]
+keep_days = 30
+keep_count = 10
+keep_monthly = 6
+
+# Storage configuration
+[jobs.storage]
+local = false   # Don't store locally (S3 only)
+s3 = true       # Store in S3
+
+# Skip options
+skip_docker = false  # Stop Docker containers during backup
+skip_s3 = false      # Don't skip S3 upload
+
+[[jobs]]
+id = "job-app-backup"
+name = "Application Config Backup"
+description = "Backup application configurations and settings"
+enabled = true
+bucket_id = "bucket-production"
+
+[jobs.schedule]
+type = "daily"
+interval = "24h"
+enabled = true
+
+[[jobs.directories]]
+path = "/etc/nginx"
+name = "nginx-config"
+compression = true
+
+[[jobs.directories]]
+path = "/etc/ssl"
+name = "ssl-certificates"
+compression = true
+
+[jobs.retention]
+keep_days = 90
+keep_count = 30
+keep_monthly = 12
+
+[jobs.storage]
+local = true   # Keep local copy
+s3 = true      # Also upload to S3
+
+skip_docker = true  # Don't stop Docker containers (not needed for configs)
+skip_s3 = false
+
+# Example for Backblaze B2 configuration
+[[buckets]]
+id = "bucket-backblaze"
+name = "Backblaze B2 Backup"
+bucket = "my-b2-bucket"
+region = ""
+access_key = "0021a1b2c3d4e5f6789012345abcdefg0000000001"
+secret_key = "K0021a1b2c3d4e5f6789012345abcdefg0000000001"
+endpoint = "https://s3.us-west-002.backblazeb2.com"
+mount_point = "/mnt/s3backup-b2"
+use_path_style = true  # Required for Backblaze B2
+provider = "Backblaze B2"
+
+# Example for MinIO configuration
+[[buckets]]
+id = "bucket-minio"
+name = "MinIO Development"
+bucket = "my-minio-bucket"
+region = ""
+access_key = "minioadmin"
+secret_key = "minioadmin"
+endpoint = "http://localhost:9000"
+mount_point = "/mnt/s3backup-minio"
+use_path_style = true  # Required for MinIO
+provider = "MinIO"

@@ -21,10 +21,11 @@ type BucketConfig struct {
 
 // BackupConfig represents the configuration for backup operations
 type BackupConfig struct {
-	Jobs       []BackupJob    `toml:"jobs"`
-	Buckets    []BucketConfig `toml:"buckets"`
-	BackupPath string         `toml:"backup_path"`
-	TempPath   string         `toml:"temp_path"`
+	Jobs       []BackupJob      `toml:"jobs"`
+	Buckets    []BucketConfig   `toml:"buckets"`
+	BackupPath string           `toml:"backup_path"`
+	TempPath   string           `toml:"temp_path"`
+	AutoUpdate AutoUpdateConfig `toml:"auto_update"`
 }
 
 // BackupJob represents a complete backup configuration with scheduling
@@ -123,4 +124,10 @@ type JobState struct {
 	LastStatus    string    `toml:"last_status"`
 	NextScheduled time.Time `toml:"next_scheduled"`
 	RunCount      int       `toml:"run_count"`
+}
+
+// AutoUpdateConfig defines automatic update checking settings
+type AutoUpdateConfig struct {
+	Enabled       bool          `toml:"enabled"`
+	CheckInterval time.Duration `toml:"check_interval"`
 }

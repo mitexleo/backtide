@@ -184,6 +184,17 @@ func runUpdate(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("✅ Successfully updated Backtide from %s to %s!\n", currentVersion, latestRelease.Version)
 
+	// Install man page after successful update
+	if !updateUser {
+		fmt.Println("📚 Installing updated man page...")
+		if err := installManPage(); err != nil {
+			fmt.Printf("⚠️  Warning: Could not install man page: %v\n", err)
+			fmt.Println("💡 You can install it manually with: sudo make install-man")
+		} else {
+			fmt.Println("✅ Man page installed successfully")
+		}
+	}
+
 	fmt.Println("💡 The update is complete. You may need to restart your shell or terminal session.")
 	fmt.Println("   Run 'backtide version' to verify the new version is active.")
 }
@@ -488,6 +499,102 @@ func getUserBinaryDir() (string, error) {
 	}
 
 	return userBin, nil
+}
+
+// installManPage installs the man page after update
+func installManPage() error {
+	// Only install man page when running as root
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("root privileges required to install man page")
+	}
+
+	// Get the current executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %v", err)
+	}
+
+	// Get the project directory (assuming binary is in project root or installed location)
+	projectDir := filepath.Dir(execPath)
+	manSource := filepath.Join(projectDir, "man", "backtide.1")
+
+	// If man page not found in current directory, try to find it
+	if _, err := os.Stat(manSource); os.IsNotExist(err) {
+		// Try to find man page in common locations
+		possiblePaths := []string{
+			"/usr/local/share/backtide/man/backtide.1",
+			"/opt/backtide/man/backtide.1",
+			filepath.Join(filepath.Dir(execPath), "../man/backtide.1"),
+			filepath.Join(filepath.Dir(execPath), "man/backtide.1"),
+		}
+
+		for _, path := range possiblePaths {
+			if _, err := os.Stat(path); err == nil {
+				manSource = path
+				break
+			}
+		}
+	}
+
+	// Check if man source exists
+	if _, err := os.Stat(manSource); os.IsNotExist(err) {
+		return fmt.Errorf("man page source not found: %s", manSource)
+	}
+
+	// Target man directory
+	manTargetDir := "/usr/local/share/man/man1"
+	manTarget := filepath.Join(manTargetDir, "backtide.1")
+
+	// Create target directory if it doesn't exist
+	if err := os.MkdirAll(manTargetDir, 0755); err != nil {
+		return fmt.Errorf("could not create man directory: %v", err)
+	}
+
+	// Copy man page
+	if err := copyFile(manSource, manTarget); err != nil {
+		return fmt.Errorf("could not copy man page: %v", err)
+	}
+
+	// Set proper permissions
+	if err := os.Chmod(manTarget, 0644); err != nil {
+		return fmt.Errorf("could not set man page permissions: %v", err)
+	}
+
+	// Update man database
+	if err := updateManDatabase(); err != nil {
+		return fmt.Errorf("could not update man database: %v", err)
+	}
+
+	return nil
+}
+
+// updateManDatabase updates the man page database
+func updateManDatabase() error {
+	// Try mandb first (modern systems)
+	if commandExists("mandb") {
+		cmd := exec.Command("mandb")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("mandb failed: %v", err)
+		}
+		return nil
+	}
+
+	// Fallback to makewhatis (older systems)
+	if commandExists("makewhatis") {
+		cmd := exec.Command("makewhatis", "/usr/local/share/man")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("makewhatis failed: %v", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("neither mandb nor makewhatis found")
+}
+
+// commandExists checks if a command exists in the system
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
 }
 
 // copyFile copies a file from src to dst
